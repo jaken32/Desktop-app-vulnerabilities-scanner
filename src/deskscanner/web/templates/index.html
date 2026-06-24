@@ -23,9 +23,19 @@
         <code>app.asar</code>. The tool reads it; it never modifies it.</p>
     </div>
 
+    <fieldset class="row modes" aria-label="Analysis mode">
+      <legend>Analysis mode</legend>
+      <label class="check"><input type="radio" name="mode" value="security" checked>
+        <span>Security</span></label>
+      <label class="check"><input type="radio" name="mode" value="efficiency">
+        <span>Efficiency <span class="hint">(footprint; no runtime profiling)</span></span></label>
+      <label class="check"><input type="radio" name="mode" value="all">
+        <span>Both</span></label>
+    </fieldset>
+
     <div class="row">
       <label class="check"><input type="checkbox" id="probe">
-        <span>Enable safe loopback probe <span class="hint">(read-only GET/OPTIONS to 127.0.0.1 only)</span></span>
+        <span>Enable safe loopback probe <span class="hint">(read-only GET/OPTIONS to 127.0.0.1 only; security mode)</span></span>
       </label>
     </div>
 

@@ -58,10 +58,11 @@ def _cmd_scan(args) -> int:
     try:
         result = scan(
             args.target,
-            probe=args.probe,
-            probe_timeout=args.probe_timeout,
+            mode=getattr(args, "mode", "security"),
+            probe=getattr(args, "probe", False),
+            probe_timeout=getattr(args, "probe_timeout", 4.0),
             limits=UnpackLimits.from_env(),
-            storage_paths=args.storage_path or [],
+            storage_paths=getattr(args, "storage_path", None) or [],
             progress=None if args.quiet else _progress,
         )
     except TargetNotElectronError as exc:
@@ -75,7 +76,7 @@ def _cmd_scan(args) -> int:
         return 3
 
     diff = None
-    if args.diff:
+    if getattr(args, "diff", None):
         try:
             with open(args.diff, "r", encoding="utf-8") as fp:
                 previous = json.load(fp)
@@ -86,7 +87,7 @@ def _cmd_scan(args) -> int:
 
     # Optional AI narrative (used by stdout, PDF, and the JSON report).
     analysis = None
-    if args.analyze:
+    if getattr(args, "analyze", False):
         from .reporting.analysis import AnalysisError, generate_analysis
         try:
             analysis = generate_analysis(result)
@@ -121,8 +122,9 @@ def _cmd_scan(args) -> int:
         if analysis is not None:
             _print_analysis(analysis)
 
-    # Exit non-zero if there are confirmed high/critical findings (CI-friendly).
-    severe = [f for f in result.findings
+    # Exit non-zero if there are confirmed high/critical findings on either axis
+    # (CI-friendly).
+    severe = [f for f in (result.findings + result.efficiency_findings)
               if f.severity.value in ("critical", "high")
               and f.confidence.value in ("confirmed", "likely")]
     return 1 if severe else 0
@@ -185,6 +187,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Per-request probe timeout (seconds).")
     sc.add_argument("--storage-path", action="append",
                     help="Explicit on-disk data dir to inspect (repeatable).")
+    sc.add_argument("--mode", choices=["security", "efficiency", "all"],
+                    default="security",
+                    help="Analysis axes to run (default security). 'all' runs "
+                         "both security and efficiency with separate grades.")
     sc.add_argument("--json", metavar="FILE", help="Write a JSON report.")
     sc.add_argument("--html", metavar="FILE", help="Write a standalone HTML report.")
     sc.add_argument("--pdf", metavar="FILE", help="Write a polished, branded PDF report.")
@@ -198,7 +204,21 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--yes", action="store_true",
                     help="Skip the interactive authorization prompt.")
     sc.add_argument("--quiet", action="store_true", help="Suppress progress lines.")
-    sc.set_defaults(func=_cmd_scan)
+    sc.set_defaults(func=_cmd_scan, mode="security")
+
+    ef = sub.add_parser("efficiency",
+                        help="Analyze an Electron app's efficiency / footprint "
+                             "(static; no runtime profiling).")
+    ef.add_argument("target", help="Path to the app dir, .app bundle, or app.asar.")
+    ef.add_argument("--json", metavar="FILE", help="Write a JSON report.")
+    ef.add_argument("--html", metavar="FILE", help="Write a standalone HTML report.")
+    ef.add_argument("--pdf", metavar="FILE", help="Write a polished, branded PDF report.")
+    ef.add_argument("--format", choices=["cli", "json"], default="cli",
+                    help="Stdout format (default cli).")
+    ef.add_argument("--yes", action="store_true",
+                    help="Skip the interactive authorization prompt.")
+    ef.add_argument("--quiet", action="store_true", help="Suppress progress lines.")
+    ef.set_defaults(func=_cmd_scan, mode="efficiency")
 
     sv = sub.add_parser("serve", help="Launch the local web UI.")
     sv.add_argument("--host", default=None)

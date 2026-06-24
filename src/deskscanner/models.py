@@ -217,10 +217,29 @@ class ScanResult:
     grade: str = "N/A"
     score: float = 0.0
     confidence_note: str = ""
+    # Which analysis axes ran: "security" | "efficiency" | "all".
+    mode: str = "security"
+    # Efficiency axis — a separate grade so it never pollutes the security grade.
+    # Empty/N-A unless the efficiency analyzer ran (mode "efficiency" or "all").
+    efficiency_findings: list[Finding] = field(default_factory=list)
+    efficiency_grade: str = "N/A"
+    efficiency_score: float = 0.0
+    efficiency_note: str = ""
+    size_summary: dict[str, Any] = field(default_factory=dict)
+    impact_summary: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def ran_security(self) -> bool:
+        return self.mode in ("security", "all")
+
+    @property
+    def ran_efficiency(self) -> bool:
+        return self.mode in ("efficiency", "all")
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "schema": "deskscanner/1",
+            "mode": self.mode,
             "app": self.app.to_dict(),
             "scan_timestamp": self.scan_timestamp,
             "probe_attempted": self.probe_attempted,
@@ -231,6 +250,16 @@ class ScanResult:
             "notes": list(self.notes),
             "findings": [f.to_dict() for f in self.findings],
         }
+        if self.ran_efficiency:
+            out["efficiency"] = {
+                "grade": self.efficiency_grade,
+                "score": self.efficiency_score,
+                "note": self.efficiency_note,
+                "size_summary": self.size_summary,
+                "impact_summary": self.impact_summary,
+                "findings": [f.to_dict() for f in self.efficiency_findings],
+            }
+        return out
 
 
 def severity_from_str(value: str) -> Severity:

@@ -15,13 +15,15 @@ from typing import Callable, Optional
 
 from .checks import build_checks
 from .checks.base import CheckContext
+from .checks.efficiency import analyze as analyze_efficiency
 from .locate import Located, TargetNotElectronError, locate
 from .models import AppInfo, ScanResult
-from .scoring import apply_score, sort_findings
+from .scoring import apply_efficiency_score, apply_score, sort_findings
 from .unpack import UnpackLimits
 
 
 ProgressFn = Callable[[str, int, int], None]
+MODES = ("security", "efficiency", "all")
 
 
 def _app_info_from_bundle(ctx_bundle, located: Located) -> AppInfo:
@@ -55,6 +57,7 @@ def _minified_ratio(ctx: CheckContext) -> float:
 def scan(
     target: str,
     *,
+    mode: str = "security",
     probe: bool = False,
     probe_timeout: float = 4.0,
     limits: Optional[UnpackLimits] = None,
@@ -62,11 +65,18 @@ def scan(
     timestamp: Optional[str] = None,
     progress: Optional[ProgressFn] = None,
 ) -> ScanResult:
-    """Run a full scan and return a :class:`ScanResult`.
+    """Run a scan and return a :class:`ScanResult`.
+
+    ``mode`` selects the analysis axes:
+      * ``"security"`` (default) — the original security checks only.
+      * ``"efficiency"`` — the static footprint/efficiency analyzer only.
+      * ``"all"`` — both, each graded on its own separate axis.
 
     Raises :class:`~deskscanner.locate.TargetNotElectronError` for non-Electron
     targets so the caller can present a clear message.
     """
+    if mode not in MODES:
+        raise ValueError(f"unknown mode {mode!r}; expected one of {MODES}")
     limits = limits or UnpackLimits.from_env()
     located = locate(target, limits)
     app = _app_info_from_bundle(located.bundle, located)
@@ -83,26 +93,39 @@ def scan(
 
     app.minified_ratio = _minified_ratio(ctx)
 
-    checks = build_checks()
-    all_findings = []
-    for i, check in enumerate(checks):
-        if progress:
-            progress(check.name, i, len(checks))
-        all_findings.extend(check.run(ctx))
-    if progress:
-        progress("scoring", len(checks), len(checks))
-
-    findings = sort_findings(all_findings)
-
     result = ScanResult(
         app=app,
-        findings=findings,
+        mode=mode,
         scan_timestamp=timestamp or datetime.now(timezone.utc).isoformat(timespec="seconds"),
         probe_attempted=probe,
-        probe_reachable=any(f.volatile for f in findings),
-        notes=list(ctx.notes),
     )
-    apply_score(result)
+
+    if mode in ("security", "all"):
+        checks = build_checks()
+        all_findings = []
+        for i, check in enumerate(checks):
+            if progress:
+                progress(check.name, i, len(checks))
+            all_findings.extend(check.run(ctx))
+        findings = sort_findings(all_findings)
+        result.findings = findings
+        result.probe_reachable = any(f.volatile for f in findings)
+        result.notes = list(ctx.notes)
+        apply_score(result)
+    else:
+        result.grade = "N/A"
+
+    if mode in ("efficiency", "all"):
+        if progress:
+            progress("efficiency", 0, 1)
+        eff = analyze_efficiency(ctx)
+        result.efficiency_findings = sort_findings(eff.findings)
+        result.size_summary = eff.size_summary
+        result.impact_summary = eff.impact_summary
+        apply_efficiency_score(result)
+
+    if progress:
+        progress("scoring", 1, 1)
     return result
 
 

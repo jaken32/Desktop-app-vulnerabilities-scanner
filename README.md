@@ -69,6 +69,13 @@ deskscanner scan ./app --probe
 
 # Diff against a previous run (ignores volatile fields):
 deskscanner scan ./app --diff report.json
+
+# EFFICIENCY mode — grade the app's size/footprint (static; no profiling):
+deskscanner efficiency ./app
+deskscanner efficiency ./app --html efficiency.html --json efficiency.json
+
+# Run BOTH axes at once (two independent grades, clearly separated):
+deskscanner scan ./app --mode all
 ```
 
 The `--analyze` flag uses Claude to turn the deterministic findings into a
@@ -101,6 +108,55 @@ downloaded as a standalone HTML file.
 
 Copy `.env.example` to `.env` (gitignored) to tune resource limits, the probe
 timeout, and the web host/port. All have safe defaults.
+
+## Efficiency mode (static footprint analysis)
+
+A second analysis axis that helps developers make an Electron app **smaller and
+leaner**. Run it with `deskscanner efficiency <app>`, or alongside security with
+`deskscanner scan <app> --mode all`. It reuses the same safe asar unpacker,
+`Finding`/`ScanResult` model, A–F grade, confidence model, and report renderers
+— it is a new check category, not a new engine. Efficiency findings are graded
+on their **own separate axis**, so they never change the security grade.
+
+**What it analyses (static, structural):** total footprint + a size breakdown by
+type and the largest files; oversized single assets; source maps shipped to
+production; un-minified production JS; oversized/uncompressed images (with
+dimensions); heavy dependencies that have lighter alternatives; duplicate
+dependency versions; possibly-unused dependencies (import not found in readable
+code); devDependencies packed into the shipped app; Electron main-process
+anti-patterns (top-level synchronous `fs`, many `BrowserWindow`s); many startup
+`<script>`s; duplicated file content; and an unpacked (no-asar) distribution.
+
+**Impact summary.** After the findings, the report shows a measured size impact:
+current shipped size vs. projected size if the flagged fixes are applied, in MB
+and as a **% reduction in payload size** (never speed), plus a "biggest wins"
+list ranked by measured saving. Each saving is labelled `measured` (e.g. source
+maps removed) or `estimate` (e.g. minification ≈65%).
+
+**What efficiency mode does NOT do (by design):**
+
+- **No runtime profiling.** No CPU, memory, FPS, or startup-time measurement —
+  it never runs, instruments, or executes the app.
+- **No fabricated speed numbers.** It never claims "X% faster/smoother". Only
+  measured *payload size* and structural signals are reported; speed effects are
+  stated **directionally** ("a smaller payload generally reduces launch/parse
+  time — verify with profiling"), never as measured figures.
+- **No confident "unused" on code it couldn't read.** On a minified/obfuscated
+  bundle, usage analysis is unreliable, so those findings drop to `possible` and
+  say so. No "unused"/"heavy" claim is made without measured evidence.
+
+### Efficiency severity rubric (hardcoded, applied identically to every app)
+
+| Severity | Meaning (efficiency axis) |
+|---|---|
+| Critical | Ships something that severely bloats the app — e.g. an un-minified production bundle **and** shipped source maps, or a 100 MB+ avoidable payload. |
+| High | Significant avoidable bloat or a clear startup-cost anti-pattern — an oversized single asset, devDependencies packed into production. |
+| Medium | A meaningful optimization opportunity — un-minified JS, duplicate dependency versions, oversized images, a known-heavy library. |
+| Low | Minor — top-level synchronous `fs` in main, many startup scripts, duplicated file content, an unpacked distribution. |
+| Info | Advisory / summary context (footprint summary, analysis-reliability note). |
+
+The grade uses the **same** severity×confidence decay math as the security axis
+(see below); the two grades are computed independently.
 
 ## How findings are scored
 
@@ -227,7 +283,8 @@ src/deskscanner/
     local_api.py       static listener detection + safe loopback probe
     storage.py         on-disk plaintext secrets + permissions
     app_meta.py        Electron version/EOL + code-signing
-  scoring.py           severity × confidence grade (diminishing returns)
+    efficiency.py      static footprint/efficiency analyzer (second axis)
+  scoring.py           severity × confidence grade (diminishing returns); efficiency grade
   diff.py              fixed / new / unchanged, ignoring volatile fields
   reporting/
     cli.py             dense terminal report

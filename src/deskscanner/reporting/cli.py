@@ -53,11 +53,35 @@ def render_cli(result: ScanResult, *, diff: Optional[DiffResult] = None,
     s = _Style(_color_enabled(stream))
     w = lambda line="": print(line, file=stream)
 
-    app = result.app
     w()
-    w(s("deskscanner — Electron application security report", _BOLD))
-    w(s("static analysis + safe loopback inspection", _DIM))
+    w(s("deskscanner — Electron application analysis report", _BOLD))
+    w(s(_mode_subtitle(result), _DIM))
     w("─" * 70)
+
+    if result.ran_security:
+        _render_security(w, s, result, diff)
+    if result.ran_efficiency:
+        _render_efficiency(w, s, result)
+
+    if result.notes:
+        w("")
+        w(s("  Notes", _BOLD))
+        for note in result.notes:
+            w(f"    · {note}")
+    w("")
+
+
+def _mode_subtitle(result: ScanResult) -> str:
+    return {
+        "security": "static analysis + safe loopback inspection",
+        "efficiency": "static efficiency / footprint analysis (no runtime profiling)",
+        "all": "security + efficiency (two independent grades)",
+    }.get(result.mode, "static analysis")
+
+
+def _render_security(w, s, result: ScanResult,
+                     diff: Optional[DiffResult] = None) -> None:
+    app = result.app
 
     # Header / grade card -------------------------------------------------
     grade_str = s(f" {result.grade} ", _GRADE_COLOR.get(result.grade, "") + _BOLD)
@@ -123,12 +147,67 @@ def render_cli(result: ScanResult, *, diff: Optional[DiffResult] = None,
     w("")
     w(s("  " + coverage.DISCLAIMER, _DIM))
 
-    if result.notes:
-        w("")
-        w(s("  Notes", _BOLD))
-        for note in result.notes:
-            w(f"    · {note}")
+
+def _render_efficiency(w, s, result: ScanResult) -> None:
+    grade = result.efficiency_grade
+    grade_str = s(f" {grade} ", _GRADE_COLOR.get(grade, "") + _BOLD)
+    summ = result.size_summary or {}
+    impact = result.impact_summary or {}
     w("")
+    w("═" * 70)
+    w(s("  EFFICIENCY / FOOTPRINT  (static — no runtime profiling)", _BOLD))
+    w("═" * 70)
+    w(f"  Grade:      {grade_str}   score {result.efficiency_score}/100")
+    if summ:
+        w(f"  Footprint:  {summ.get('total_human', '?')} "
+          f"across {summ.get('file_count', 0)} files")
+        bt = summ.get("by_type_human", {})
+        if bt:
+            top = "  ".join(f"{k}={v}" for k, v in list(bt.items())[:6])
+            w(s(f"              {top}", _DIM))
+    if result.efficiency_note:
+        w(f"  Confidence: {result.efficiency_note}")
+    largest = summ.get("largest", [])[:5]
+    if largest:
+        w("")
+        w(s("  Largest files", _BOLD))
+        for item in largest:
+            w(f"    {item['human']:>9}  {item['path']}")
+    w("─" * 70)
+
+    scored = [f for f in result.efficiency_findings if f.severity is not Severity.INFO]
+    info = [f for f in result.efficiency_findings if f.severity is Severity.INFO]
+    if not scored:
+        w(s("  No significant efficiency issues found.", _SEV_COLOR['low']))
+    for f in scored:
+        _render_finding(w, s, f)
+    if info:
+        w("")
+        w(s("  Informational / context", _BOLD))
+        for f in info:
+            _render_finding(w, s, f, compact=True)
+
+    # Impact summary + biggest wins -------------------------------------
+    if impact:
+        w("")
+        w("─" * 70)
+        w(s("  Impact summary (measured payload size)", _BOLD))
+        w(f"    Current shipped size:   {impact.get('current_human', '?')}")
+        w(f"    If flagged fixes apply: ~{impact.get('projected_human', '?')} "
+          f"(−{impact.get('saved_human', '0')}, "
+          f"−{impact.get('pct_reduction', 0)}% payload size)")
+        wins = impact.get("biggest_wins", [])
+        if wins:
+            w("")
+            w(s("  Biggest wins (by measured size reduction)", _BOLD))
+            for win in wins[:8]:
+                tag = "measured" if win["kind"] == "measured" else "estimate"
+                w(f"    −{win['human']:>9}  {win['label']}  {s('[' + tag + ']', _DIM)}")
+        if impact.get("directional"):
+            w("")
+            w(s("  " + impact["directional"], _DIM))
+        if impact.get("disclaimer"):
+            w(s("  " + impact["disclaimer"], _DIM))
 
 
 def _render_finding(w, s, f, compact: bool = False) -> None:

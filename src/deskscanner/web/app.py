@@ -32,6 +32,7 @@ _TEMPLATES = os.path.join(_HERE, "templates")
 
 class ScanRequest(BaseModel):
     target: str
+    mode: str = "security"
     probe: bool = False
     consent: bool = False
     previous_report: dict | None = None
@@ -63,9 +64,11 @@ def create_app() -> FastAPI:
         if not req.target.strip():
             return JSONResponse({"error": "Please provide a target path."},
                                 status_code=400)
+        mode = req.mode if req.mode in ("security", "efficiency", "all") else "security"
         try:
             result = scan(
                 req.target.strip(),
+                mode=mode,
                 probe=req.probe,
                 limits=UnpackLimits.from_env(),
             )

@@ -88,6 +88,31 @@ def apply_score(result: ScanResult) -> ScanResult:
     return result
 
 
+def _efficiency_note(result: ScanResult) -> str:
+    parts = []
+    summ = result.size_summary or {}
+    if summ.get("total_human"):
+        parts.append(f"footprint {summ['total_human']} across "
+                     f"{summ.get('file_count', 0)} files")
+    n_possible = sum(1 for f in result.efficiency_findings
+                     if f.confidence.value == "possible")
+    if n_possible:
+        parts.append(f"{n_possible} optimization(s) are judgement calls "
+                     "('possible') and weighted down in the grade")
+    parts.append("static size analysis only — no runtime profiling")
+    return "; ".join(parts)
+
+
+def apply_efficiency_score(result: ScanResult) -> ScanResult:
+    """Grade the efficiency axis from its own findings (same severity×confidence
+    decay math as security), kept entirely separate from the security grade."""
+    score = compute_score(result.efficiency_findings, result.app.minified_ratio)
+    result.efficiency_grade = score.grade
+    result.efficiency_score = score.value
+    result.efficiency_note = _efficiency_note(result)
+    return result
+
+
 def sort_findings(findings: list[Finding]) -> list[Finding]:
     """Deterministic ordering: severity, then confidence, then stable id.
 

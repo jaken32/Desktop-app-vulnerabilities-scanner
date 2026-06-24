@@ -4,6 +4,9 @@ All bundle-derived strings (titles, evidence, locators, remediation) are
 rendered through Jinja2 with autoescaping ON, so hostile content from the
 scanned app cannot inject markup or script into the report. The design system
 is hand-written CSS custom properties — a dense audit layout, not a template.
+
+The report renders the security axis, the efficiency axis, or both, depending on
+``result.mode`` — each with its own grade card and findings, clearly separated.
 """
 
 from __future__ import annotations
@@ -17,6 +20,16 @@ from ..models import ScanResult, Severity
 from . import coverage
 
 _ENV = Environment(autoescape=True, trim_blocks=True, lstrip_blocks=True)
+
+# What static efficiency analysis explicitly does NOT do (honesty section).
+_EFF_LIMITS = [
+    "No runtime profiling — no CPU, memory, FPS, or startup-time measurement.",
+    "No executing, instrumenting, or running the app.",
+    "No claims like 'X% faster/smoother'. Only measured payload SIZE and "
+    "structural signals are reported; speed effects are directional, not measured.",
+    "Usage/dead-code detection is unreliable on minified/obfuscated bundles and "
+    "is reported at lower confidence there.",
+]
 
 # Colourblind-safe severity hues; always paired with a glyph + text label.
 _CSS = """
@@ -57,6 +70,8 @@ a { color:var(--accent); }
 .grade .letter { font-size:var(--fs-5); font-weight:800; line-height:1;
   font-family:var(--mono); }
 .grade .score { color:var(--muted); font-size:var(--fs-1); margin-top:var(--sp-2); }
+.grade .axis { color:var(--muted); font-size:var(--fs-0); text-transform:uppercase;
+  letter-spacing:.06em; margin-bottom:var(--sp-2); }
 .grade[data-grade="A"] .letter { color:var(--ok); }
 .grade[data-grade="B"] .letter { color:var(--sev-low); }
 .grade[data-grade="C"] .letter,.grade[data-grade="D"] .letter { color:var(--sev-medium); }
@@ -76,9 +91,21 @@ a { color:var(--accent); }
   font-variant-numeric:tabular-nums; }
 .pill .g { font-family:var(--mono); font-weight:700; }
 .pill .n { font-weight:700; }
+.sizes { display:flex; gap:var(--sp-2); flex-wrap:wrap; margin:var(--sp-3) 0; }
+.wins { list-style:none; padding:0; margin:var(--sp-3) 0; }
+.wins li { display:flex; justify-content:space-between; gap:var(--sp-3);
+  border-bottom:1px solid var(--border); padding:var(--sp-2) 0;
+  font-variant-numeric:tabular-nums; }
+.wins .amt { font-family:var(--mono); font-weight:700; white-space:nowrap; }
+.tag { font-size:var(--fs-0); color:var(--muted); border:1px solid var(--border);
+  border-radius:999px; padding:0 6px; margin-left:var(--sp-2); }
+.impact { margin:var(--sp-4) 0; }
+.impact .headline { font-size:var(--fs-2); }
 section.findings { margin-top:var(--sp-5); }
 h2 { font-size:var(--fs-2); border-bottom:1px solid var(--border);
   padding-bottom:var(--sp-2); margin:var(--sp-6) 0 var(--sp-4); }
+h2.axis-sec { border-bottom:2px solid var(--accent); }
+h2.axis-eff { border-bottom:2px solid var(--ok); }
 .finding { border:1px solid var(--border); border-left:4px solid var(--border);
   border-radius:var(--radius); background:var(--surface); margin:var(--sp-3) 0;
   padding:var(--sp-4); }
@@ -137,12 +164,14 @@ _TEMPLATE = """<!doctype html>
 <div class="wrap">
   <header class="masthead">
     <h1>deskscanner</h1>
-    <span class="sub">static Electron analysis + safe loopback inspection</span>
+    <span class="sub">{{ subtitle }}</span>
   </header>
 
-  <section class="card summary" aria-label="Summary">
+  {% if ran_security %}
+  <section class="card summary" aria-label="Security summary">
     <div class="grade" data-grade="{{ grade }}" role="img"
-         aria-label="Overall grade {{ grade }}, score {{ score }} out of 100">
+         aria-label="Security grade {{ grade }}, score {{ score }} out of 100">
+      <div class="axis">Security</div>
       <div class="letter">{{ grade }}</div>
       <div class="score">{{ score }}/100</div>
     </div>
@@ -158,7 +187,7 @@ _TEMPLATE = """<!doctype html>
         <dt>Signing</dt><dd>{{ signing }}</dd>
         <dt>Scanned</dt><dd>{{ timestamp }}</dd>
       </dl>
-      <p class="confnote"><strong>Overall confidence:</strong> {{ confidence_note }}</p>
+      <p class="confnote"><strong>Security confidence:</strong> {{ confidence_note }}</p>
     </div>
   </section>
 
@@ -173,14 +202,13 @@ _TEMPLATE = """<!doctype html>
   </div>
 
   <section class="findings" id="findings">
-    <h2>Findings</h2>
+    <h2 class="axis-sec">Security findings</h2>
     {% if not scored %}
       <p>No issues above informational level for the checks run.</p>
     {% endif %}
     {% for f in scored %}
       {{ render_finding(f) }}
     {% endfor %}
-
     {% if info %}
     <h2>Informational / context</h2>
     {% for f in info %}
@@ -203,13 +231,86 @@ _TEMPLATE = """<!doctype html>
   {% endif %}
 
   <section>
-    <h2>What this does &amp; doesn't cover</h2>
+    <h2>What the security scan does &amp; doesn't cover</h2>
     <h3 style="font-size:var(--fs-1)">Covers</h3>
     <ul class="cov">{% for c in covers %}<li>{{ c }}</li>{% endfor %}</ul>
     <h3 style="font-size:var(--fs-1)">Does NOT cover</h3>
     <ul class="cov">{% for c in not_covers %}<li>{{ c }}</li>{% endfor %}</ul>
     <p class="disclaimer">{{ disclaimer }}</p>
   </section>
+  {% endif %}
+
+  {% if ran_efficiency %}
+  <section class="card summary" id="efficiency" aria-label="Efficiency summary">
+    <div class="grade" data-grade="{{ eff_grade }}" role="img"
+         aria-label="Efficiency grade {{ eff_grade }}, score {{ eff_score }} out of 100">
+      <div class="axis">Efficiency</div>
+      <div class="letter">{{ eff_grade }}</div>
+      <div class="score">{{ eff_score }}/100</div>
+    </div>
+    <div class="meta">
+      <dl>
+        <dt>Footprint</dt><dd>{{ size.total_human }} · {{ size.file_count }} files</dd>
+        {% for k, v in size.by_type_human.items() %}
+        <dt>{{ k }}</dt><dd>{{ v }}</dd>
+        {% endfor %}
+      </dl>
+      <p class="confnote"><strong>Efficiency confidence:</strong> {{ eff_note }}</p>
+    </div>
+  </section>
+
+  {% if size.largest %}
+  <section>
+    <h3 style="font-size:var(--fs-1)">Largest files</h3>
+    <ul class="wins">
+      {% for f in size.largest %}
+      <li><span class="loc">{{ f.path }}</span><span class="amt">{{ f.human }}</span></li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+
+  <section class="findings">
+    <h2 class="axis-eff">Efficiency findings</h2>
+    {% if not eff_scored %}
+      <p>No significant efficiency issues found.</p>
+    {% endif %}
+    {% for f in eff_scored %}
+      {{ render_finding(f) }}
+    {% endfor %}
+    {% if eff_info %}
+    <h2>Informational / context</h2>
+    {% for f in eff_info %}
+      {{ render_finding(f) }}
+    {% endfor %}
+    {% endif %}
+  </section>
+
+  {% if impact %}
+  <section class="impact">
+    <h2>Impact summary <span class="conf">(measured payload size)</span></h2>
+    <p class="headline">Current shipped size <strong>{{ impact.current_human }}</strong>
+      → if flagged fixes apply <strong>~{{ impact.projected_human }}</strong>
+      (<strong>−{{ impact.saved_human }}</strong>, −{{ impact.pct_reduction }}% payload size).</p>
+    {% if impact.biggest_wins %}
+    <h3 style="font-size:var(--fs-1)">Biggest wins (by measured size reduction)</h3>
+    <ul class="wins">
+      {% for w in impact.biggest_wins %}
+      <li><span>{{ w.label }}<span class="tag">{{ w.kind }}</span></span>
+          <span class="amt">−{{ w.human }}</span></li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="disclaimer">{{ impact.directional }}</p>
+    <p class="disclaimer">{{ impact.disclaimer }}</p>
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>What static efficiency analysis does NOT cover</h2>
+    <ul class="cov">{% for c in eff_limits %}<li>{{ c }}</li>{% endfor %}</ul>
+  </section>
+  {% endif %}
 
   {% if notes %}
   <section><h2>Notes</h2><ul class="cov">{% for n in notes %}<li>{{ n }}</li>{% endfor %}</ul></section>
@@ -217,7 +318,8 @@ _TEMPLATE = """<!doctype html>
 
   <footer>
     Generated by deskscanner. Severity is shown by glyph + label + colour.
-    A good grade means the inspected configuration looks sound — not that the app is secure.
+    A good security grade means the inspected configuration looks sound — not that
+    the app is secure. Efficiency figures are static size measurements, not runtime speed.
   </footer>
 </div>
 </body>
@@ -249,6 +351,12 @@ _FINDING_MACRO = """
 {% endmacro %}
 """
 
+_SUBTITLE = {
+    "security": "static Electron analysis + safe loopback inspection",
+    "efficiency": "static efficiency / footprint analysis — no runtime profiling",
+    "all": "security + efficiency — two independent grades",
+}
+
 
 def _finding_view(f) -> dict:
     return {
@@ -275,6 +383,10 @@ def render_html(result: ScanResult, *, diff: Optional[DiffResult] = None) -> str
 
     scored = [_finding_view(f) for f in result.findings if f.severity is not Severity.INFO]
     info = [_finding_view(f) for f in result.findings if f.severity is Severity.INFO]
+    eff_scored = [_finding_view(f) for f in result.efficiency_findings
+                  if f.severity is not Severity.INFO]
+    eff_info = [_finding_view(f) for f in result.efficiency_findings
+                if f.severity is Severity.INFO]
 
     signing = {True: "code-signed (artifacts present)",
                False: "no signature artifacts found",
@@ -284,7 +396,10 @@ def render_html(result: ScanResult, *, diff: Optional[DiffResult] = None) -> str
     tmpl.globals["render_finding"] = render_finding
     return tmpl.render(
         css=_CSS,
+        subtitle=_SUBTITLE.get(result.mode, "static analysis"),
         app=result.app,
+        ran_security=result.ran_security,
+        ran_efficiency=result.ran_efficiency,
         grade=result.grade,
         score=result.score,
         confidence_note=result.confidence_note,
@@ -299,5 +414,15 @@ def render_html(result: ScanResult, *, diff: Optional[DiffResult] = None) -> str
         covers=coverage.COVERS,
         not_covers=coverage.DOES_NOT_COVER,
         disclaimer=coverage.DISCLAIMER,
+        # efficiency axis
+        eff_grade=result.efficiency_grade,
+        eff_score=result.efficiency_score,
+        eff_note=result.efficiency_note,
+        size=result.size_summary or {"total_human": "?", "file_count": 0,
+                                     "by_type_human": {}, "largest": []},
+        impact=result.impact_summary or None,
+        eff_scored=eff_scored,
+        eff_info=eff_info,
+        eff_limits=_EFF_LIMITS,
         notes=result.notes,
     )
