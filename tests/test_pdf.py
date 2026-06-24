@@ -1,6 +1,12 @@
 """The PDF report must render to a valid document and survive hostile/exotic
 bundle strings (it never executes them, but it must not crash on them)."""
 
+import pytest
+
+# PDF rendering is an optional feature behind the `report` extra; skip cleanly
+# when fpdf2 isn't installed rather than hard-failing the suite.
+pytest.importorskip("fpdf")
+
 from deskscanner.models import (
     AppInfo,
     Confidence,
