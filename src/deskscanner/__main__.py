@@ -84,26 +84,73 @@ def _cmd_scan(args) -> int:
             print(f"Could not read --diff baseline ({exc}); continuing without diff.",
                   file=sys.stderr)
 
+    # Optional AI narrative (used by stdout, PDF, and the JSON report).
+    analysis = None
+    if args.analyze:
+        from .reporting.analysis import AnalysisError, generate_analysis
+        try:
+            analysis = generate_analysis(result)
+        except AnalysisError as exc:
+            print(f"AI analysis unavailable ({exc}); continuing without it.",
+                  file=sys.stderr)
+
     if args.json:
+        payload = result.to_dict()
+        if analysis is not None:
+            payload["analysis"] = analysis.to_dict()
         with open(args.json, "w", encoding="utf-8") as fp:
-            json.dump(result.to_dict(), fp, indent=2, sort_keys=False)
+            json.dump(payload, fp, indent=2, sort_keys=False)
         print(f"Wrote JSON report to {args.json}", file=sys.stderr)
     if args.html:
         with open(args.html, "w", encoding="utf-8") as fp:
             fp.write(render_html(result, diff=diff))
         print(f"Wrote HTML report to {args.html}", file=sys.stderr)
+    if args.pdf:
+        from .reporting.pdf import write_pdf
+        write_pdf(result, args.pdf, analysis=analysis)
+        print(f"Wrote PDF report to {args.pdf}", file=sys.stderr)
 
     if args.format == "json" and not args.json:
-        json.dump(result.to_dict(), sys.stdout, indent=2)
+        payload = result.to_dict()
+        if analysis is not None:
+            payload["analysis"] = analysis.to_dict()
+        json.dump(payload, sys.stdout, indent=2)
         print()
     elif args.format != "json":
         render_cli(result, diff=diff)
+        if analysis is not None:
+            _print_analysis(analysis)
 
     # Exit non-zero if there are confirmed high/critical findings (CI-friendly).
     severe = [f for f in result.findings
               if f.severity.value in ("critical", "high")
               and f.confidence.value in ("confirmed", "likely")]
     return 1 if severe else 0
+
+
+def _print_analysis(analysis) -> None:
+    """Print the AI narrative under the CLI report."""
+    print()
+    print("─" * 70)
+    print("  AI analysis", f"(model: {analysis.model})")
+    print("─" * 70)
+    if analysis.plain_english:
+        print("\n  Plain-English summary")
+        for line in analysis.plain_english.splitlines():
+            print(f"    {line}")
+    if analysis.key_risks:
+        print("\n  Key risks")
+        for risk in analysis.key_risks:
+            print(f"    • {risk}")
+    if analysis.in_depth:
+        print("\n  In-depth analysis")
+        for line in analysis.in_depth.splitlines():
+            print(f"    {line}")
+    if analysis.recommendations:
+        print("\n  Recommendations")
+        for rec in analysis.recommendations:
+            print(f"    → {rec}")
+    print()
 
 
 def _cmd_serve(args) -> int:
@@ -140,6 +187,10 @@ def build_parser() -> argparse.ArgumentParser:
                     help="Explicit on-disk data dir to inspect (repeatable).")
     sc.add_argument("--json", metavar="FILE", help="Write a JSON report.")
     sc.add_argument("--html", metavar="FILE", help="Write a standalone HTML report.")
+    sc.add_argument("--pdf", metavar="FILE", help="Write a polished, branded PDF report.")
+    sc.add_argument("--analyze", action="store_true",
+                    help="Add an AI in-depth analysis + plain-English explanation "
+                         "of the findings (requires ANTHROPIC_API_KEY).")
     sc.add_argument("--diff", metavar="PREV.json",
                     help="Diff against a previous JSON report (ignores volatile).")
     sc.add_argument("--format", choices=["cli", "json"], default="cli",
