@@ -117,3 +117,16 @@ footer { color:var(--muted); font-size:var(--fs-0); margin-top:var(--sp-6);
   border-top:1px solid var(--border); padding-top:var(--sp-3); }
 :focus-visible { outline:2px solid var(--accent); outline-offset:2px; border-radius:4px; }
 @media (max-width:640px) { .summary { grid-template-columns:1fr; } .kv { grid-template-columns:1fr; } }
+
+/* Efficiency mode additions */
+.modes { display: flex; gap: var(--sp-4, 16px); flex-wrap: wrap; align-items: center; }
+.modes legend { font-size: 12px; color: var(--muted, #9aa3b2); padding: 0; }
+.grade .axis { font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--muted, #9aa3b2); margin-bottom: 6px; }
+.wins { list-style: none; padding: 0; margin: 12px 0; }
+.wins li { display: flex; justify-content: space-between; gap: 12px;
+  border-bottom: 1px solid var(--border, #2a2f3a); padding: 8px 0;
+  font-variant-numeric: tabular-nums; }
+.wins .amt { font-family: var(--mono, monospace); font-weight: 700; white-space: nowrap; }
+h2.axis-eff { border-bottom: 2px solid var(--ok, #69d28a); }
+h2.axis-sec { border-bottom: 2px solid var(--accent, #5ea0ef); }

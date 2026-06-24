@@ -298,13 +298,96 @@ class _Report:  # thin wrapper around the lazily-imported FPDF base
     def build(self, analysis=None) -> bytes:
         self.pdf.add_page()
         self._header()
-        self._grade_card()
-        self._rollup()
-        self._analysis(analysis)
-        self._findings()
-        self._coverage()
+        if self.result.ran_security:
+            self._grade_card()
+            self._rollup()
+            self._analysis(analysis)
+            self._findings()
+            self._coverage()
+        if self.result.ran_efficiency:
+            self._efficiency()
         out = self.pdf.output()
         return bytes(out)
+
+    # -- efficiency axis --------------------------------------------------- #
+    def _efficiency(self) -> None:
+        p, r = self.pdf, self.result
+        summ = r.size_summary or {}
+        impact = r.impact_summary or {}
+        self._h2("Efficiency / footprint (static — no runtime profiling)")
+        gcol = _GRADE_RGB.get(r.efficiency_grade, _MUTED)
+        p.set_font("Helvetica", "B", 12)
+        p.set_text_color(*gcol)
+        p.cell(0, 7, _latin1(f"Grade {r.efficiency_grade}  ·  "
+                             f"{r.efficiency_score}/100"),
+               new_x="LMARGIN", new_y="NEXT")
+        p.set_font("Helvetica", "", 9)
+        p.set_text_color(*_INK)
+        if summ:
+            p.multi_cell(0, 5, _latin1(
+                f"Footprint: {summ.get('total_human','?')} across "
+                f"{summ.get('file_count',0)} files. "
+                + "  ".join(f"{k}={v}" for k, v in
+                            list(summ.get('by_type_human', {}).items())[:6])),
+                new_x="LMARGIN", new_y="NEXT")
+        if r.efficiency_note:
+            p.set_font("Helvetica", "I", 8)
+            p.set_text_color(*_MUTED)
+            p.multi_cell(0, 4, _latin1("Confidence: " + r.efficiency_note),
+                         new_x="LMARGIN", new_y="NEXT")
+        p.ln(1)
+
+        scored = [f for f in r.efficiency_findings if f.severity is not Severity.INFO]
+        info = [f for f in r.efficiency_findings if f.severity is Severity.INFO]
+        if not scored:
+            p.set_font("Helvetica", "", 10)
+            p.set_text_color(*_SEV_RGB["low"])
+            p.multi_cell(0, 5, _latin1("No significant efficiency issues found."),
+                         new_x="LMARGIN", new_y="NEXT")
+        for f in scored:
+            self._finding(f)
+        for f in info:
+            self._finding(f, compact=True)
+
+        if impact:
+            self._h2("Impact summary (measured payload size — not runtime speed)")
+            p.set_font("Helvetica", "", 9)
+            p.set_text_color(*_INK)
+            p.multi_cell(0, 5, _latin1(impact.get("headline", "")),
+                         new_x="LMARGIN", new_y="NEXT")
+            p.ln(1)
+            for w in impact.get("biggest_wins", []):
+                p.set_font("Helvetica", "B", 8)
+                p.cell(22, 4.5, _latin1(f"-{w['human']}"))
+                p.set_font("Helvetica", "", 8)
+                p.multi_cell(self._w - 22, 4.5, _latin1(
+                    f"{w['label']} ({w['before_human']} -> ~{w['after_human']}) "
+                    f"[{w['kind']}]"
+                    + (f" - {w['assumption']}" if w.get("assumption") else "")),
+                    new_x="LMARGIN", new_y="NEXT")
+            if impact.get("measured_benefits"):
+                p.ln(1)
+                p.set_font("Helvetica", "B", 9)
+                p.set_text_color(*_INK)
+                p.cell(0, 5, _latin1("Measured benefits"), new_x="LMARGIN", new_y="NEXT")
+                p.set_font("Helvetica", "", 8)
+                for b in impact["measured_benefits"]:
+                    p.multi_cell(0, 4.5, _latin1("- " + b), new_x="LMARGIN", new_y="NEXT")
+            if impact.get("directional_benefits"):
+                p.ln(1)
+                p.set_font("Helvetica", "B", 9)
+                p.cell(0, 5, _latin1("Directional benefits (expected, NOT measured)"),
+                       new_x="LMARGIN", new_y="NEXT")
+                p.set_font("Helvetica", "", 8)
+                p.set_text_color(*_MUTED)
+                for b in impact["directional_benefits"]:
+                    p.multi_cell(0, 4.5, _latin1("-> " + b), new_x="LMARGIN", new_y="NEXT")
+            p.ln(1)
+            p.set_font("Helvetica", "I", 8)
+            p.set_text_color(*_MUTED)
+            if impact.get("disclaimer"):
+                p.multi_cell(0, 4, _latin1(impact["disclaimer"]),
+                             new_x="LMARGIN", new_y="NEXT")
 
 
 def render_pdf(result: ScanResult, *, analysis: Any = None) -> bytes:

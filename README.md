@@ -48,10 +48,16 @@ cd Desktop-app-vulnerabilities-scanner
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .                                     # installs pinned deps
 
-# Scan an installed app (point at the app dir, .app bundle, or app.asar):
+# Scan an installed app (point at the app dir, .app bundle, or app.asar).
+# By default this runs BOTH axes — security vulnerabilities AND efficiency —
+# each with its own separate grade:
 deskscanner scan /Applications/Slack.app
 deskscanner scan "/opt/Pieces/resources/app.asar"
 deskscanner scan ./my-electron-app
+
+# Run just one axis when you want to:
+deskscanner scan ./app --mode security      # security only
+deskscanner scan ./app --mode efficiency    # efficiency only (same as `efficiency`)
 
 # Save machine-readable + shareable reports:
 deskscanner scan ./app --json report.json --html report.html
@@ -69,7 +75,17 @@ deskscanner scan ./app --probe
 
 # Diff against a previous run (ignores volatile fields):
 deskscanner scan ./app --diff report.json
+
+# EFFICIENCY only — grade the app's size/footprint (static; no profiling):
+deskscanner efficiency ./app
+deskscanner efficiency ./app --html efficiency.html --json efficiency.json
 ```
+
+`deskscanner scan` runs **both** the security and efficiency axes by default,
+each with its own independent A–F grade, shown as two clearly-separated sections.
+Pass `--mode security` or `--mode efficiency` (or use the `efficiency`
+subcommand) to run a single axis. The library API and web UI default to
+security-only for backward compatibility — pass `mode="all"` to opt in.
 
 The `--analyze` flag uses Claude to turn the deterministic findings into a
 plain-English summary and a deeper technical analysis (key risks, recommended
@@ -101,6 +117,76 @@ downloaded as a standalone HTML file.
 
 Copy `.env.example` to `.env` (gitignored) to tune resource limits, the probe
 timeout, and the web host/port. All have safe defaults.
+
+## Efficiency mode (static footprint analysis)
+
+A second analysis axis that helps developers make an Electron app **smaller and
+leaner**. Run it with `deskscanner efficiency <app>`, or alongside security with
+`deskscanner scan <app> --mode all`. It reuses the same safe asar unpacker,
+`Finding`/`ScanResult` model, A–F grade, confidence model, and report renderers
+— it is a new check category, not a new engine. Efficiency findings are graded
+on their **own separate axis**, so they never change the security grade.
+
+**What it analyses (static, structural):** total footprint + a size breakdown by
+type and the largest files; oversized single assets; source maps shipped to
+production; un-minified production JS; oversized/uncompressed images (with
+dimensions); heavy dependencies that have lighter alternatives; duplicate
+dependency versions; possibly-unused dependencies (import not found in readable
+code); devDependencies packed into the shipped app; Electron main-process
+anti-patterns (top-level synchronous `fs`, many `BrowserWindow`s); many startup
+`<script>`s; duplicated file content; and an unpacked (no-asar) distribution.
+
+**Impact summary.** Every efficiency report ends with an Impact Summary that
+quantifies *only what static inspection can measure*:
+
+- **Current vs. projected size** — the measured shipped size, the projected size
+  if the flagged fixes are applied, the absolute saving, and the **% reduction in
+  payload size** (always labelled "size", never "speed").
+- **Per-fix measured savings (ranked "biggest wins")** — each fix with its
+  `before → after` bytes, e.g. *"Minify renderer.js: 7.2 MB → ~2.5 MB (−4.7 MB)"*,
+  *"Exclude source maps: −9.0 MB"*. Each is labelled `measured` (exact, e.g. a
+  removal) or `estimate` with its stated assumption (e.g. *"assumes ~65%
+  minification reduction"*).
+- **Measured benefits** — numeric, traceable: total footprint reduction, files no
+  longer shipped, devDependencies pruned (count + bytes), possibly-unused deps to
+  remove.
+- **Directional benefits** — real but *not* measured, and clearly labelled as
+  such: *"smaller startup payload → generally faster launch and parse — verify
+  with profiling."* No number is ever attached to these.
+- **Honesty footer:** *"All figures are static size measurements and structural
+  estimates. This tool does not run the app; actual runtime speed, memory, and
+  smoothness must be confirmed by profiling the running application."*
+
+If the app is already lean, the summary says so plainly (*"No significant
+size-reduction opportunities found; shipped size is X MB"*) and fabricates no
+savings. Every number traces to a counted file size; the summary reflects only
+the findings actually present in this scan; identical bundles produce identical
+numbers.
+
+**What efficiency mode does NOT do (by design):**
+
+- **No runtime profiling.** No CPU, memory, FPS, or startup-time measurement —
+  it never runs, instruments, or executes the app.
+- **No fabricated speed numbers.** It never claims "X% faster/smoother". Only
+  measured *payload size* and structural signals are reported; speed effects are
+  stated **directionally** ("a smaller payload generally reduces launch/parse
+  time — verify with profiling"), never as measured figures.
+- **No confident "unused" on code it couldn't read.** On a minified/obfuscated
+  bundle, usage analysis is unreliable, so those findings drop to `possible` and
+  say so. No "unused"/"heavy" claim is made without measured evidence.
+
+### Efficiency severity rubric (hardcoded, applied identically to every app)
+
+| Severity | Meaning (efficiency axis) |
+|---|---|
+| Critical | Ships something that severely bloats the app — e.g. an un-minified production bundle **and** shipped source maps, or a 100 MB+ avoidable payload. |
+| High | Significant avoidable bloat or a clear startup-cost anti-pattern — an oversized single asset, devDependencies packed into production. |
+| Medium | A meaningful optimization opportunity — un-minified JS, duplicate dependency versions, oversized images, a known-heavy library. |
+| Low | Minor — top-level synchronous `fs` in main, many startup scripts, duplicated file content, an unpacked distribution. |
+| Info | Advisory / summary context (footprint summary, analysis-reliability note). |
+
+The grade uses the **same** severity×confidence decay math as the security axis
+(see below); the two grades are computed independently.
 
 ## How findings are scored
 
@@ -227,7 +313,8 @@ src/deskscanner/
     local_api.py       static listener detection + safe loopback probe
     storage.py         on-disk plaintext secrets + permissions
     app_meta.py        Electron version/EOL + code-signing
-  scoring.py           severity × confidence grade (diminishing returns)
+    efficiency.py      static footprint/efficiency analyzer (second axis)
+  scoring.py           severity × confidence grade (diminishing returns); efficiency grade
   diff.py              fixed / new / unchanged, ignoring volatile fields
   reporting/
     cli.py             dense terminal report

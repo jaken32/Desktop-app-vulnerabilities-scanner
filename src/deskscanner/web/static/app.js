@@ -132,23 +132,108 @@ function rollupRow(data) {
   return wrap;
 }
 
-function renderReport(data) {
-  const main = $("#results");
-  main.replaceChildren();
-  main.appendChild(summaryCard(data));
-  main.appendChild(rollupRow(data));
+function gradeCard(axis, grade, score, rows, note) {
+  const card = el("section", { class: "card summary", attrs: { "aria-label": axis + " summary" } });
+  const g = el("div", {
+    class: "grade", attrs: { "data-grade": grade, role: "img",
+      "aria-label": `${axis} grade ${grade}, score ${score} of 100` },
+  });
+  g.appendChild(el("div", { class: "axis", text: axis }));
+  g.appendChild(el("div", { class: "letter", text: grade }));
+  g.appendChild(el("div", { class: "score", text: `${score}/100` }));
+  card.appendChild(g);
+  const metaWrap = el("div", { class: "meta" });
+  const dl = el("dl");
+  rows.forEach(([dt, dd]) => {
+    dl.appendChild(el("dt", { text: dt }));
+    dl.appendChild(el("dd", { text: dd }));
+  });
+  metaWrap.appendChild(dl);
+  if (note) metaWrap.appendChild(el("p", { class: "confnote", text: note }));
+  card.appendChild(metaWrap);
+  return card;
+}
 
-  const scored = data.findings.filter((f) => f.severity !== "info");
-  const info = data.findings.filter((f) => f.severity === "info");
+function renderEfficiency(main, eff) {
+  const size = eff.size_summary || {};
+  const rows = [["Footprint", `${size.total_human || "?"} · ${size.file_count || 0} files`]];
+  Object.entries(size.by_type_human || {}).forEach(([k, v]) => rows.push([k, v]));
+  main.appendChild(gradeCard("Efficiency", eff.grade, eff.score, rows,
+    "Efficiency confidence: " + (eff.note || "")));
 
-  main.appendChild(el("h2", { text: "Findings" }));
+  main.appendChild(el("h2", { class: "axis-eff", text: "Efficiency findings" }));
+  const scored = (eff.findings || []).filter((f) => f.severity !== "info");
+  const info = (eff.findings || []).filter((f) => f.severity === "info");
   if (scored.length === 0) {
     main.appendChild(el("div", { class: "banner empty",
-      text: "No issues above informational level for the checks run. " +
-            "A good grade means the inspected config looks sound — not that the app is secure." }));
+      text: "No significant efficiency issues found." }));
   } else {
     scored.forEach((f) => main.appendChild(findingNode(f)));
   }
+
+  const im = eff.impact_summary;
+  if (im) {
+    main.appendChild(el("h2", { text: "Impact summary (measured payload size — not runtime speed)" }));
+    main.appendChild(el("p", { text: im.headline || "" }));
+    if (im.biggest_wins && im.biggest_wins.length) {
+      main.appendChild(el("h3", { text: "Biggest wins (per-fix measured savings, ranked)" }));
+      const ul = el("ul", { class: "wins" });
+      im.biggest_wins.forEach((w) => {
+        const li = el("li");
+        const desc = `${w.label} (${w.before_human} → ~${w.after_human}) [${w.kind}]` +
+          (w.assumption ? ` · ${w.assumption}` : "");
+        li.appendChild(el("span", { text: desc }));
+        li.appendChild(el("span", { class: "amt", text: `−${w.human}` }));
+        ul.appendChild(li);
+      });
+      main.appendChild(ul);
+    }
+    const bullets = (title, arr) => {
+      if (!arr || !arr.length) return;
+      main.appendChild(el("h3", { text: title }));
+      const ul = el("ul", { class: "cov" });
+      arr.forEach((b) => ul.appendChild(el("li", { text: b })));
+      main.appendChild(ul);
+    };
+    bullets("Measured benefits", im.measured_benefits);
+    bullets("Directional benefits (expected, not measured — verify with profiling)",
+            im.directional_benefits);
+    if (im.disclaimer) main.appendChild(el("p", { class: "confnote", text: im.disclaimer }));
+  }
+
+  if (info.length) {
+    main.appendChild(el("h2", { text: "Efficiency — informational" }));
+    info.forEach((f) => main.appendChild(findingNode(f)));
+  }
+}
+
+function renderReport(data) {
+  const main = $("#results");
+  main.replaceChildren();
+
+  const ranSecurity = data.mode === "security" || data.mode === "all";
+  if (ranSecurity) {
+    main.appendChild(summaryCard(data));
+    main.appendChild(rollupRow(data));
+
+    const scored = data.findings.filter((f) => f.severity !== "info");
+    const info = data.findings.filter((f) => f.severity === "info");
+
+    main.appendChild(el("h2", { class: "axis-sec", text: "Security findings" }));
+    if (scored.length === 0) {
+      main.appendChild(el("div", { class: "banner empty",
+        text: "No issues above informational level for the checks run. " +
+              "A good grade means the inspected config looks sound — not that the app is secure." }));
+    } else {
+      scored.forEach((f) => main.appendChild(findingNode(f)));
+    }
+    if (info.length) {
+      main.appendChild(el("h2", { text: "Informational / context" }));
+      info.forEach((f) => main.appendChild(findingNode(f)));
+    }
+  }
+
+  if (data.efficiency) renderEfficiency(main, data.efficiency);
 
   if (data.diff) {
     main.appendChild(el("h2", { text: "Diff vs previous report (static findings only)" }));
@@ -159,11 +244,6 @@ function renderReport(data) {
       main.appendChild(el("div", { class: "fmeta", text: `NEW   [${f.severity}] ${f.title} (${f.stable_id})` })));
     data.diff.fixed.forEach((f) =>
       main.appendChild(el("div", { class: "fmeta", text: `FIXED [${f.severity}] ${f.title} (${f.stable_id})` })));
-  }
-
-  if (info.length) {
-    main.appendChild(el("h2", { text: "Informational / context" }));
-    info.forEach((f) => main.appendChild(findingNode(f)));
   }
 
   if (data.notes && data.notes.length) {
@@ -179,6 +259,8 @@ async function runScan(ev) {
   const target = $("#target").value.trim();
   const probe = $("#probe").checked;
   const consent = $("#consent").checked;
+  const modeEl = document.querySelector('input[name="mode"]:checked');
+  const mode = modeEl ? modeEl.value : "security";
 
   if (!consent) { setStatus("Tick the authorization box to continue.", true); return; }
   if (!target) { setStatus("Enter a target path.", true); return; }
@@ -193,7 +275,7 @@ async function runScan(ev) {
     const resp = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, probe, consent }),
+      body: JSON.stringify({ target, mode, probe, consent }),
     });
     const data = await resp.json();
     if (!resp.ok) {
@@ -203,7 +285,12 @@ async function runScan(ev) {
     }
     lastHtmlReport = data.html || null;
     renderReport(data);
-    setStatus(`Done — grade ${data.grade}, ${data.findings.length} findings.`);
+    const bits = [];
+    if (data.mode === "security" || data.mode === "all")
+      bits.push(`security ${data.grade} (${data.findings.length})`);
+    if (data.efficiency)
+      bits.push(`efficiency ${data.efficiency.grade} (${data.efficiency.findings.length})`);
+    setStatus("Done — " + bits.join(" · ") + ".");
     $("#download-btn").hidden = !lastHtmlReport;
   } catch (err) {
     showError("Could not reach the scanner backend. Is the server still running?");
