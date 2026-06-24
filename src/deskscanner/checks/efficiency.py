@@ -146,9 +146,15 @@ def _image_dims(data: bytes) -> Optional[tuple[int, int]]:
 @dataclass
 class _ImpactItem:
     label: str
-    bytes_saved: int
-    kind: str        # "measured" | "estimate"
+    before_bytes: int        # current measured size of the thing being fixed
+    after_bytes: int         # projected size after the fix (0 for a removal)
+    kind: str                # "measured" | "estimate"
     severity: str
+    assumption: str = ""     # stated assumption for an estimate
+
+    @property
+    def bytes_saved(self) -> int:
+        return max(0, self.before_bytes - self.after_bytes)
 
 
 @dataclass
@@ -169,22 +175,25 @@ def analyze(ctx: CheckContext) -> EfficiencyResult:
     minified_ratio = ctx.app.minified_ratio
     obfuscated = minified_ratio >= 0.6
 
+    # Measured, traceable counters for the "measured benefits" bucket.
+    metrics: dict = {}
+
     size_summary = _size_summary(files, total)
 
     findings += _check_total_footprint(total, len(files))
     findings += _check_oversized_assets(files, impact)
-    findings += _check_source_maps(files, impact)
-    findings += _check_unminified(ctx, files, impact)
+    findings += _check_source_maps(files, impact, metrics)
+    findings += _check_unminified(ctx, files, impact, metrics)
     findings += _check_combined_unoptimized(files)
-    findings += _check_images(ctx, files, impact)
-    findings += _check_dependencies(ctx, impact, obfuscated)
+    findings += _check_images(ctx, files, impact, metrics)
+    findings += _check_dependencies(ctx, impact, metrics, obfuscated)
     findings += _check_main_process(ctx)
     findings += _check_startup_scripts(ctx)
-    findings += _check_duplicate_content(files, impact)
+    findings += _check_duplicate_content(files, impact, metrics)
     findings += _check_packaging(bundle)
     findings.append(_obfuscation_note(minified_ratio))
 
-    impact_summary = _impact_summary(total, impact, obfuscated)
+    impact_summary = _impact_summary(total, impact, metrics)
     return EfficiencyResult(findings=findings, size_summary=size_summary,
                             impact_summary=impact_summary)
 
@@ -267,10 +276,13 @@ def _check_oversized_assets(files: list[BundleFile], impact: list[_ImpactItem]) 
                            "on-disk footprint of the app.",
             discriminator=f"eff:oversized:{f.relpath}",
         ))
-        if kind in ("image", "media"):
+        # Images are costed once, in _check_images. Here we only cost oversized
+        # *media* so the projection never double-counts a file.
+        if kind == "media":
             impact.append(_ImpactItem(
                 f"Compress/transcode {f.relpath}",
-                int(f.size * IMAGE_REDUCTION), "estimate", sev.value))
+                f.size, int(f.size * (1 - IMAGE_REDUCTION)), "estimate", sev.value,
+                assumption="assumes ~60% reduction from a modern codec"))
     return out
 
 
@@ -288,15 +300,19 @@ def _oversized_fix(kind: str) -> str:
             "fetch it on demand if it isn't needed at launch.")
 
 
-def _check_source_maps(files: list[BundleFile], impact: list[_ImpactItem]) -> list[Finding]:
+def _check_source_maps(files: list[BundleFile], impact: list[_ImpactItem],
+                       metrics: dict) -> list[Finding]:
     maps = [f for f in files if f.relpath.lower().endswith(".map")]
     if not maps:
         return []
     total_map = sum(f.size for f in maps)
     sev = Severity.HIGH if total_map >= 8 * MB else Severity.MEDIUM
     sample = ", ".join(f.relpath for f in sorted(maps, key=lambda x: x.relpath)[:5])
+    # Removal: after = 0 (the maps are simply not shipped). Exactly measured.
     impact.append(_ImpactItem("Exclude source maps from the packaged build",
-                              total_map, "measured", sev.value))
+                              total_map, 0, "measured", sev.value))
+    metrics["sourcemap_files"] = len(maps)
+    metrics["sourcemap_bytes"] = total_map
     return [Finding(
         title=f"Source maps shipped to production: {len(maps)} file(s), {_human(total_map)}",
         severity=sev,
@@ -320,7 +336,7 @@ def _check_source_maps(files: list[BundleFile], impact: list[_ImpactItem]) -> li
 
 
 def _check_unminified(ctx: CheckContext, files: list[BundleFile],
-                      impact: list[_ImpactItem]) -> list[Finding]:
+                      impact: list[_ImpactItem], metrics: dict) -> list[Finding]:
     out: list[Finding] = []
     saved = 0
     flagged = 0
@@ -335,6 +351,11 @@ def _check_unminified(ctx: CheckContext, files: list[BundleFile],
             continue
         flagged += 1
         saved += int(f.size * MINIFY_REDUCTION)
+        # Per-file before -> after so the projection shows each script's win.
+        impact.append(_ImpactItem(
+            f"Minify {f.relpath}", f.size, int(f.size * (1 - MINIFY_REDUCTION)),
+            "estimate", "medium",
+            assumption="assumes ~65% minification reduction"))
         out.append(Finding(
             title=f"Un-minified production script: {f.relpath} ({_human(f.size)})",
             severity=Severity.MEDIUM,
@@ -355,9 +376,9 @@ def _check_unminified(ctx: CheckContext, files: list[BundleFile],
                                 "is the right call for a production build.",
             discriminator=f"eff:unminified:{f.relpath}",
         ))
-    if saved:
-        impact.append(_ImpactItem(
-            f"Minify {flagged} un-minified script(s)", saved, "estimate", "medium"))
+    if flagged:
+        metrics["minify_files"] = flagged
+        metrics["minify_saved"] = saved
     return out
 
 
@@ -392,8 +413,10 @@ def _check_combined_unoptimized(files: list[BundleFile]) -> list[Finding]:
 
 
 def _check_images(ctx: CheckContext, files: list[BundleFile],
-                  impact: list[_ImpactItem]) -> list[Finding]:
+                  impact: list[_ImpactItem], metrics: dict) -> list[Finding]:
     out: list[Finding] = []
+    img_files = 0
+    img_saved = 0
     for f in files:
         if not f.relpath.lower().endswith(_IMAGE_SUFFIXES):
             continue
@@ -430,9 +453,15 @@ def _check_images(ctx: CheckContext, files: list[BundleFile],
                                 "splash) may need its size; verify before converting.",
             discriminator=f"eff:image:{f.relpath}",
         ))
-        impact.append(_ImpactItem(f"Recompress {f.relpath}",
-                                  int(f.size * IMAGE_REDUCTION), "estimate",
-                                  "medium" if big or huge_dim else "low"))
+        img_files += 1
+        img_saved += int(f.size * IMAGE_REDUCTION)
+        impact.append(_ImpactItem(
+            f"Recompress {f.relpath}", f.size, int(f.size * (1 - IMAGE_REDUCTION)),
+            "estimate", "medium" if big or huge_dim else "low",
+            assumption="assumes ~60% reduction from WebP/AVIF recompression"))
+    if img_files:
+        metrics["image_files"] = img_files
+        metrics["image_saved"] = img_saved
     return out
 
 
@@ -461,7 +490,7 @@ def _gather_imports(ctx: CheckContext, files: list[BundleFile]) -> set[str]:
 
 
 def _check_dependencies(ctx: CheckContext, impact: list[_ImpactItem],
-                        obfuscated: bool) -> list[Finding]:
+                        metrics: dict, obfuscated: bool) -> list[Finding]:
     import json
 
     pkg = ctx.bundle.get("package.json")
@@ -507,8 +536,12 @@ def _check_dependencies(ctx: CheckContext, impact: list[_ImpactItem],
             discriminator=f"eff:heavy:{name}",
         ))
         if measured:
-            impact.append(_ImpactItem(f"Replace {name} with {alt}",
-                                      int(measured * 0.8), "estimate", "medium"))
+            impact.append(_ImpactItem(
+                f"Replace {name} with {alt}", measured, int(measured * 0.2),
+                "estimate", "medium",
+                assumption="assumes the lighter alternative is ~80% smaller"))
+            metrics["heavy_count"] = metrics.get("heavy_count", 0) + 1
+            metrics["heavy_saved"] = metrics.get("heavy_saved", 0) + int(measured * 0.8)
 
     # (2) Duplicate / multiple versions of the same package.
     for name, versions in sorted(nm_versions.items()):
@@ -535,9 +568,11 @@ def _check_dependencies(ctx: CheckContext, impact: list[_ImpactItem],
 
     # (3) Un-used declared dependencies (import not found in readable code).
     imported = _gather_imports(ctx, ctx.bundle.files)
+    unused_count = 0
     for name in sorted(deps):
         if name in imported:
             continue
+        unused_count += 1
         # Only flag deps whose code we could actually search.
         conf = Confidence.POSSIBLE if obfuscated else Confidence.LIKELY
         note = ("The bundle is largely minified/obfuscated, so import detection is "
@@ -566,13 +601,18 @@ def _check_dependencies(ctx: CheckContext, impact: list[_ImpactItem],
             discriminator=f"eff:unused:{name}",
         ))
 
+    if unused_count:
+        metrics["unused_count"] = unused_count
+
     # (4) devDependencies shipped inside the bundle.
     shipped_dev = sorted(d for d in dev if d in nm_sizes)
     if shipped_dev:
         dev_bytes = sum(nm_sizes.get(d, 0) for d in shipped_dev)
         sev = Severity.HIGH if dev_bytes >= 10 * MB else Severity.MEDIUM
         impact.append(_ImpactItem("Prune devDependencies from the packaged app",
-                                  dev_bytes, "measured", sev.value))
+                                  dev_bytes, 0, "measured", sev.value))
+        metrics["devdep_count"] = len(shipped_dev)
+        metrics["devdep_bytes"] = dev_bytes
         out.append(Finding(
             title=f"devDependencies packed into production: {len(shipped_dev)} package(s), {_human(dev_bytes)}",
             severity=sev,
@@ -726,7 +766,8 @@ def _check_startup_scripts(ctx: CheckContext) -> list[Finding]:
     return out
 
 
-def _check_duplicate_content(files: list[BundleFile], impact: list[_ImpactItem]) -> list[Finding]:
+def _check_duplicate_content(files: list[BundleFile], impact: list[_ImpactItem],
+                             metrics: dict) -> list[Finding]:
     by_hash: dict[str, list[BundleFile]] = {}
     for f in files:
         if f.size < DUP_CONTENT_BYTES or "node_modules/" in f.relpath:
@@ -737,12 +778,17 @@ def _check_duplicate_content(files: list[BundleFile], impact: list[_ImpactItem])
             continue
     out: list[Finding] = []
     saved = 0
+    redundant_files = 0
     for digest, group in sorted(by_hash.items()):
         if len(group) < 2:
             continue
         group = sorted(group, key=lambda x: x.relpath)
         redundant = group[0].size * (len(group) - 1)
         saved += redundant
+        redundant_files += len(group) - 1
+        impact.append(_ImpactItem(
+            f"De-duplicate {group[0].relpath} (+{len(group) - 1} copies)",
+            group[0].size * len(group), group[0].size, "measured", "low"))
         out.append(Finding(
             title=f"Duplicated file content: {len(group)} identical copies ({_human(group[0].size)} each)",
             severity=Severity.LOW,
@@ -760,8 +806,9 @@ def _check_duplicate_content(files: list[BundleFile], impact: list[_ImpactItem])
                            "package.",
             discriminator=f"eff:dup-content:{digest[:12]}",
         ))
-    if saved:
-        impact.append(_ImpactItem("De-duplicate identical files", saved, "measured", "low"))
+    if redundant_files:
+        metrics["dup_redundant_files"] = redundant_files
+        metrics["dup_bytes"] = saved
     return out
 
 
@@ -819,14 +866,63 @@ def _obfuscation_note(minified_ratio: float) -> Finding:
 # --------------------------------------------------------------------------- #
 # Impact summary (measured size; directional effects clearly labelled)
 # --------------------------------------------------------------------------- #
-def _impact_summary(total: int, impact: list[_ImpactItem], obfuscated: bool) -> dict:
-    # Deterministic order: biggest measured/estimated saving first.
+_HONESTY_FOOTER = (
+    "All figures are static size measurements and structural estimates. This tool "
+    "does not run the app; actual runtime speed, memory, and smoothness must be "
+    "confirmed by profiling the running application.")
+
+_DIRECTIONAL = [
+    "Smaller startup payload → generally faster launch and parse.",
+    "Fewer top-level synchronous requires → less main-process blocking at startup.",
+    "Removing dead/duplicate code → smaller attack surface and easier maintenance.",
+]
+
+
+def _impact_summary(total: int, impact: list[_ImpactItem], metrics: dict) -> dict:
+    # Deterministic order: biggest saving first, then label.
     items = sorted(impact, key=lambda it: (-it.bytes_saved, it.label))
-    saved = sum(it.bytes_saved for it in items)
-    saved = min(saved, total)  # never project below zero
+    saved = min(sum(it.bytes_saved for it in items), total)
     projected = max(0, total - saved)
     pct = round(100.0 * saved / total, 1) if total else 0.0
-    return {
+
+    per_fix = [
+        {"label": it.label,
+         "before_bytes": it.before_bytes, "before_human": _human(it.before_bytes),
+         "after_bytes": it.after_bytes, "after_human": _human(it.after_bytes),
+         "bytes_saved": it.bytes_saved, "human": _human(it.bytes_saved),
+         "kind": it.kind, "severity": it.severity, "assumption": it.assumption}
+        for it in items
+    ]
+
+    # MEASURED benefits — every number here traces to a counted file/byte size.
+    measured: list[str] = []
+    lean = not items
+    if not lean:
+        measured.append(f"Download / disk footprint reduced by {_human(saved)} "
+                        f"({pct}% of the {_human(total)} payload).")
+    removed_files = (metrics.get("sourcemap_files", 0)
+                     + metrics.get("dup_redundant_files", 0))
+    if removed_files:
+        measured.append(f"{removed_files} file(s) no longer shipped "
+                        "(source maps + duplicate copies).")
+    if metrics.get("devdep_count"):
+        measured.append(f"devDependencies pruned from the package: "
+                        f"{metrics['devdep_count']} package(s), "
+                        f"−{_human(metrics['devdep_bytes'])} (measured).")
+    if metrics.get("minify_files"):
+        measured.append(f"{metrics['minify_files']} un-minified script(s) would "
+                        f"shrink by ~{_human(metrics['minify_saved'])} "
+                        "(estimate, ~65% minification).")
+    if metrics.get("image_files"):
+        measured.append(f"{metrics['image_files']} oversized image(s) would shrink "
+                        f"by ~{_human(metrics['image_saved'])} "
+                        "(estimate, ~60% recompression).")
+    if metrics.get("unused_count"):
+        measured.append(f"{metrics['unused_count']} possibly-unused dependency(ies) "
+                        "to remove (reduces install weight).")
+
+    summary = {
+        "lean": lean,
         "current_bytes": total,
         "current_human": _human(total),
         "projected_bytes": projected,
@@ -834,21 +930,24 @@ def _impact_summary(total: int, impact: list[_ImpactItem], obfuscated: bool) -> 
         "bytes_saved": saved,
         "saved_human": _human(saved),
         "pct_reduction": pct,
-        "biggest_wins": [
-            {"label": it.label, "bytes_saved": it.bytes_saved,
-             "human": _human(it.bytes_saved), "kind": it.kind, "severity": it.severity}
-            for it in items
-        ],
+        "headline": (
+            f"No significant size-reduction opportunities found; shipped size is "
+            f"{_human(total)}." if lean else
+            f"Shipped bundle: {_human(total)}. If the flagged efficiency fixes are "
+            f"applied: ~{_human(projected)} (−{_human(saved)}, −{pct}% payload "
+            "size). Measured from file sizes."),
+        "per_fix": per_fix,
+        "biggest_wins": per_fix[:8],
+        "measured_benefits": measured,
+        "directional_benefits": _DIRECTIONAL,
         "directional": (
             "Likely effect (NOT measured): a smaller startup payload generally "
             "reduces launch and parse time, and fewer top-level synchronous "
             "requires reduce main-process blocking. These are directional "
             "expectations, not measured speedups — confirm with runtime profiling."),
-        "disclaimer": (
-            "These figures are static size measurements and structural estimates. "
-            "Actual runtime speed/smoothness must be confirmed by profiling the "
-            "running app; this tool does not measure them."),
+        "disclaimer": _HONESTY_FOOTER,
     }
+    return summary
 
 
 class EfficiencyCheck(Check):

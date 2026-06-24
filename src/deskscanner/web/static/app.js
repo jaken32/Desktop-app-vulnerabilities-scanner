@@ -173,21 +173,31 @@ function renderEfficiency(main, eff) {
 
   const im = eff.impact_summary;
   if (im) {
-    main.appendChild(el("h2", { text: "Impact summary (measured payload size)" }));
-    main.appendChild(el("p", {
-      text: `Current ${im.current_human} → if flagged fixes apply ~${im.projected_human}` +
-            ` (−${im.saved_human}, −${im.pct_reduction}% payload size).` }));
+    main.appendChild(el("h2", { text: "Impact summary (measured payload size — not runtime speed)" }));
+    main.appendChild(el("p", { text: im.headline || "" }));
     if (im.biggest_wins && im.biggest_wins.length) {
+      main.appendChild(el("h3", { text: "Biggest wins (per-fix measured savings, ranked)" }));
       const ul = el("ul", { class: "wins" });
       im.biggest_wins.forEach((w) => {
         const li = el("li");
-        li.appendChild(el("span", { text: `${w.label} [${w.kind}]` }));
+        const desc = `${w.label} (${w.before_human} → ~${w.after_human}) [${w.kind}]` +
+          (w.assumption ? ` · ${w.assumption}` : "");
+        li.appendChild(el("span", { text: desc }));
         li.appendChild(el("span", { class: "amt", text: `−${w.human}` }));
         ul.appendChild(li);
       });
       main.appendChild(ul);
     }
-    if (im.directional) main.appendChild(el("p", { class: "confnote", text: im.directional }));
+    const bullets = (title, arr) => {
+      if (!arr || !arr.length) return;
+      main.appendChild(el("h3", { text: title }));
+      const ul = el("ul", { class: "cov" });
+      arr.forEach((b) => ul.appendChild(el("li", { text: b })));
+      main.appendChild(ul);
+    };
+    bullets("Measured benefits", im.measured_benefits);
+    bullets("Directional benefits (expected, not measured — verify with profiling)",
+            im.directional_benefits);
     if (im.disclaimer) main.appendChild(el("p", { class: "confnote", text: im.disclaimer }));
   }
 

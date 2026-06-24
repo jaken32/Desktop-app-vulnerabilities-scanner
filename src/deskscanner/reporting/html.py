@@ -287,19 +287,29 @@ _TEMPLATE = """<!doctype html>
   </section>
 
   {% if impact %}
-  <section class="impact">
-    <h2>Impact summary <span class="conf">(measured payload size)</span></h2>
-    <p class="headline">Current shipped size <strong>{{ impact.current_human }}</strong>
-      → if flagged fixes apply <strong>~{{ impact.projected_human }}</strong>
-      (<strong>−{{ impact.saved_human }}</strong>, −{{ impact.pct_reduction }}% payload size).</p>
+  <section class="impact card" style="padding:var(--sp-5)">
+    <h2>Impact summary <span class="conf">(measured payload size — not runtime speed)</span></h2>
+    <p class="headline">{{ impact.headline }}</p>
     {% if impact.biggest_wins %}
-    <h3 style="font-size:var(--fs-1)">Biggest wins (by measured size reduction)</h3>
+    <h3 style="font-size:var(--fs-1)">Biggest wins (per-fix measured savings, ranked)</h3>
     <ul class="wins">
       {% for w in impact.biggest_wins %}
-      <li><span>{{ w.label }}<span class="tag">{{ w.kind }}</span></span>
-          <span class="amt">−{{ w.human }}</span></li>
+      <li>
+        <span>{{ w.label }} <span class="conf">({{ w.before_human }} → ~{{ w.after_human }})</span>
+          <span class="tag">{{ w.kind }}</span>
+          {% if w.assumption %}<span class="conf"> · {{ w.assumption }}</span>{% endif %}</span>
+        <span class="amt">−{{ w.human }}</span>
+      </li>
       {% endfor %}
     </ul>
+    {% endif %}
+    {% if impact.measured_benefits %}
+    <h3 style="font-size:var(--fs-1)">Measured benefits</h3>
+    <ul class="cov">{% for b in impact.measured_benefits %}<li>{{ b }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if impact.directional_benefits %}
+    <h3 style="font-size:var(--fs-1)">Directional benefits <span class="conf">(expected, not measured — verify with profiling)</span></h3>
+    <ul class="cov">{% for b in impact.directional_benefits %}<li>{{ b }}</li>{% endfor %}</ul>
     {% endif %}
     <p class="disclaimer">{{ impact.directional }}</p>
     <p class="disclaimer">{{ impact.disclaimer }}</p>

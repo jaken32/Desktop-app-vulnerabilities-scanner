@@ -136,11 +136,32 @@ code); devDependencies packed into the shipped app; Electron main-process
 anti-patterns (top-level synchronous `fs`, many `BrowserWindow`s); many startup
 `<script>`s; duplicated file content; and an unpacked (no-asar) distribution.
 
-**Impact summary.** After the findings, the report shows a measured size impact:
-current shipped size vs. projected size if the flagged fixes are applied, in MB
-and as a **% reduction in payload size** (never speed), plus a "biggest wins"
-list ranked by measured saving. Each saving is labelled `measured` (e.g. source
-maps removed) or `estimate` (e.g. minification ≈65%).
+**Impact summary.** Every efficiency report ends with an Impact Summary that
+quantifies *only what static inspection can measure*:
+
+- **Current vs. projected size** — the measured shipped size, the projected size
+  if the flagged fixes are applied, the absolute saving, and the **% reduction in
+  payload size** (always labelled "size", never "speed").
+- **Per-fix measured savings (ranked "biggest wins")** — each fix with its
+  `before → after` bytes, e.g. *"Minify renderer.js: 7.2 MB → ~2.5 MB (−4.7 MB)"*,
+  *"Exclude source maps: −9.0 MB"*. Each is labelled `measured` (exact, e.g. a
+  removal) or `estimate` with its stated assumption (e.g. *"assumes ~65%
+  minification reduction"*).
+- **Measured benefits** — numeric, traceable: total footprint reduction, files no
+  longer shipped, devDependencies pruned (count + bytes), possibly-unused deps to
+  remove.
+- **Directional benefits** — real but *not* measured, and clearly labelled as
+  such: *"smaller startup payload → generally faster launch and parse — verify
+  with profiling."* No number is ever attached to these.
+- **Honesty footer:** *"All figures are static size measurements and structural
+  estimates. This tool does not run the app; actual runtime speed, memory, and
+  smoothness must be confirmed by profiling the running application."*
+
+If the app is already lean, the summary says so plainly (*"No significant
+size-reduction opportunities found; shipped size is X MB"*) and fabricates no
+savings. Every number traces to a counted file size; the summary reflects only
+the findings actually present in this scan; identical bundles produce identical
+numbers.
 
 **What efficiency mode does NOT do (by design):**
 

@@ -187,26 +187,37 @@ def _render_efficiency(w, s, result: ScanResult) -> None:
         for f in info:
             _render_finding(w, s, f, compact=True)
 
-    # Impact summary + biggest wins -------------------------------------
+    # Impact summary ----------------------------------------------------
     if impact:
         w("")
-        w("─" * 70)
-        w(s("  Impact summary (measured payload size)", _BOLD))
-        w(f"    Current shipped size:   {impact.get('current_human', '?')}")
-        w(f"    If flagged fixes apply: ~{impact.get('projected_human', '?')} "
-          f"(−{impact.get('saved_human', '0')}, "
-          f"−{impact.get('pct_reduction', 0)}% payload size)")
+        w("═" * 70)
+        w(s("  IMPACT SUMMARY (measured payload size — NOT runtime speed)", _BOLD))
+        w("═" * 70)
+        w("  " + impact.get("headline", ""))
         wins = impact.get("biggest_wins", [])
         if wins:
             w("")
-            w(s("  Biggest wins (by measured size reduction)", _BOLD))
-            for win in wins[:8]:
-                tag = "measured" if win["kind"] == "measured" else "estimate"
-                w(f"    −{win['human']:>9}  {win['label']}  {s('[' + tag + ']', _DIM)}")
-        if impact.get("directional"):
+            w(s("  Biggest wins (per-fix measured savings, ranked)", _BOLD))
+            for win in wins:
+                tag = win["kind"]
+                line = (f"    −{win['human']:>9}  {win['label']}  "
+                        f"({win['before_human']} → ~{win['after_human']})  "
+                        f"{s('[' + tag + ']', _DIM)}")
+                w(line)
+                if win.get("assumption"):
+                    w(s(f"               {win['assumption']}", _DIM))
+        if impact.get("measured_benefits"):
             w("")
-            w(s("  " + impact["directional"], _DIM))
+            w(s("  Measured benefits", _BOLD))
+            for b in impact["measured_benefits"]:
+                w(f"    • {b}")
+        if impact.get("directional_benefits"):
+            w("")
+            w(s("  Directional benefits (expected, NOT measured — verify with profiling)", _BOLD))
+            for b in impact["directional_benefits"]:
+                w(s(f"    → {b}", _DIM))
         if impact.get("disclaimer"):
+            w("")
             w(s("  " + impact["disclaimer"], _DIM))
 
 
