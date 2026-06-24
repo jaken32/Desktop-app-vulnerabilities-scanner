@@ -1,0 +1,5 @@
+# Agent-only dependencies.
+# Kept deliberately separate from the deskscanner's pinned runtime deps
+# (requirements.txt / requirements.lock.txt at the project root) so that
+# installing the agent never risks breaking the scanner's locked environment.
+anthropic>=0.69.0
