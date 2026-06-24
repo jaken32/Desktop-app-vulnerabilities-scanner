@@ -188,9 +188,10 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--storage-path", action="append",
                     help="Explicit on-disk data dir to inspect (repeatable).")
     sc.add_argument("--mode", choices=["security", "efficiency", "all"],
-                    default="security",
-                    help="Analysis axes to run (default security). 'all' runs "
-                         "both security and efficiency with separate grades.")
+                    default="all",
+                    help="Analysis axes to run (default 'all' — both security and "
+                         "efficiency, each with its own grade). Use 'security' or "
+                         "'efficiency' to run just one.")
     sc.add_argument("--json", metavar="FILE", help="Write a JSON report.")
     sc.add_argument("--html", metavar="FILE", help="Write a standalone HTML report.")
     sc.add_argument("--pdf", metavar="FILE", help="Write a polished, branded PDF report.")
@@ -204,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("--yes", action="store_true",
                     help="Skip the interactive authorization prompt.")
     sc.add_argument("--quiet", action="store_true", help="Suppress progress lines.")
-    sc.set_defaults(func=_cmd_scan, mode="security")
+    sc.set_defaults(func=_cmd_scan, mode="all")
 
     ef = sub.add_parser("efficiency",
                         help="Analyze an Electron app's efficiency / footprint "

@@ -48,10 +48,16 @@ cd Desktop-app-vulnerabilities-scanner
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e .                                     # installs pinned deps
 
-# Scan an installed app (point at the app dir, .app bundle, or app.asar):
+# Scan an installed app (point at the app dir, .app bundle, or app.asar).
+# By default this runs BOTH axes — security vulnerabilities AND efficiency —
+# each with its own separate grade:
 deskscanner scan /Applications/Slack.app
 deskscanner scan "/opt/Pieces/resources/app.asar"
 deskscanner scan ./my-electron-app
+
+# Run just one axis when you want to:
+deskscanner scan ./app --mode security      # security only
+deskscanner scan ./app --mode efficiency    # efficiency only (same as `efficiency`)
 
 # Save machine-readable + shareable reports:
 deskscanner scan ./app --json report.json --html report.html
@@ -70,13 +76,16 @@ deskscanner scan ./app --probe
 # Diff against a previous run (ignores volatile fields):
 deskscanner scan ./app --diff report.json
 
-# EFFICIENCY mode — grade the app's size/footprint (static; no profiling):
+# EFFICIENCY only — grade the app's size/footprint (static; no profiling):
 deskscanner efficiency ./app
 deskscanner efficiency ./app --html efficiency.html --json efficiency.json
-
-# Run BOTH axes at once (two independent grades, clearly separated):
-deskscanner scan ./app --mode all
 ```
+
+`deskscanner scan` runs **both** the security and efficiency axes by default,
+each with its own independent A–F grade, shown as two clearly-separated sections.
+Pass `--mode security` or `--mode efficiency` (or use the `efficiency`
+subcommand) to run a single axis. The library API and web UI default to
+security-only for backward compatibility — pass `mode="all"` to opt in.
 
 The `--analyze` flag uses Claude to turn the deterministic findings into a
 plain-English summary and a deeper technical analysis (key risks, recommended
