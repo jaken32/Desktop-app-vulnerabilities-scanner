@@ -1,0 +1,13 @@
+{
+  "name": "insecure-electron-fixture",
+  "productName": "Insecure Electron Fixture",
+  "version": "0.1.0",
+  "main": "main.js",
+  "description": "DELIBERATELY-INSECURE fixture for deskscanner tests. Not a real app.",
+  "dependencies": {
+    "lodash": "^3.10.1"
+  },
+  "devDependencies": {
+    "electron": "^22.0.0"
+  }
+}

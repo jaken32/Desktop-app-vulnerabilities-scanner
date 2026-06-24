@@ -1,0 +1,11 @@
+# Top-level runtime dependencies (pinned). See requirements.lock.txt for the
+# fully-resolved, hash-free transitive lockfile committed alongside this file.
+httpx==0.27.2
+packaging==24.1
+jinja2==3.1.4
+fastapi==0.115.0
+uvicorn==0.30.6
+python-multipart==0.0.12
+
+# Dev / test
+pytest==8.3.3

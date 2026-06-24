@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>deskscanner</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<a class="skip" href="#results">Skip to results</a>
+<div class="wrap">
+  <header class="masthead">
+    <h1>deskscanner</h1>
+    <span class="sub">static Electron analysis + safe loopback inspection</span>
+  </header>
+
+  <form id="scan-form" class="card panel" aria-label="Scan configuration">
+    <div class="field">
+      <label for="target">Target path</label>
+      <input id="target" name="target" type="text" autocomplete="off" spellcheck="false"
+        placeholder="/Applications/Slack.app  ·  /opt/App/resources/app.asar  ·  ./app" required>
+      <p class="hint">An installed app directory, a <code>.app</code> bundle, or an
+        <code>app.asar</code>. The tool reads it; it never modifies it.</p>
+    </div>
+
+    <div class="row">
+      <label class="check"><input type="checkbox" id="probe">
+        <span>Enable safe loopback probe <span class="hint">(read-only GET/OPTIONS to 127.0.0.1 only)</span></span>
+      </label>
+    </div>
+
+    <details class="notice">
+      <summary>Authorization notice</summary>
+      <p>deskscanner performs static analysis and, only if the probe is enabled, a
+        safe read-only request to the app's own loopback service. It never modifies
+        the target, reverse-engineers native binaries, or touches remote hosts.
+        Only scan software you own or are authorised to assess.</p>
+    </details>
+
+    <div class="row">
+      <label class="check req"><input type="checkbox" id="consent">
+        <span>I am authorised to scan this target.</span>
+      </label>
+    </div>
+
+    <div class="actions">
+      <button id="scan-btn" type="submit">Run scan</button>
+      <button id="download-btn" type="button" class="ghost" hidden>Download HTML report</button>
+      <span id="status" class="status" role="status" aria-live="polite"></span>
+    </div>
+  </form>
+
+  <main id="results" aria-live="polite">
+    <!-- states injected by app.js: loading / error / empty / success -->
+    <p class="placeholder">Run a scan to see a graded report here.</p>
+  </main>
+
+  <footer>
+    Severity is shown by glyph + label + colour. A good grade means the inspected
+    configuration looks sound — not that the app is secure.
+  </footer>
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>

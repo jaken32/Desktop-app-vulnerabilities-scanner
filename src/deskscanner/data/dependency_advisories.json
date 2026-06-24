@@ -1,0 +1,36 @@
+{
+  "_meta": {
+    "description": "DATED, hand-curated advisory data. deskscanner NEVER asserts a CVE from memory. It reports (a) 'outdated major version' purely from version-number comparison against the dated 'latest_major' snapshot below, and (b) named advisories ONLY if they appear in the 'advisories' list here, with a citation. Any package not covered is reported as 'not scanned for known CVEs'.",
+    "as_of": "2026-01-15",
+    "sources": [
+      "https://www.npmjs.com (latest-major snapshot, manually recorded)",
+      "https://github.com/advisories"
+    ]
+  },
+  "latest_major": {
+    "electron": 34,
+    "react": 19,
+    "react-dom": 19,
+    "vue": 3,
+    "angular": 18,
+    "@angular/core": 18,
+    "express": 4,
+    "lodash": 4,
+    "moment": 2,
+    "axios": 1,
+    "webpack": 5,
+    "node-fetch": 3,
+    "ws": 8,
+    "jquery": 3,
+    "minimist": 1,
+    "request": 2,
+    "node-sass": 9,
+    "left-pad": 1,
+    "socket.io": 4,
+    "typescript": 5,
+    "next": 15,
+    "ejs": 3,
+    "handlebars": 4
+  },
+  "advisories": []
+}

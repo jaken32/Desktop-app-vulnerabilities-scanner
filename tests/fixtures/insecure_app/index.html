@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Insecure Fixture</title>
+</head>
+<body>
+  <h1>Insecure renderer</h1>
+  <!-- webview with nodeintegration and no CSP on the document -->
+  <webview src="https://content.untrusted-cdn.net/widget" nodeintegration></webview>
+  <script src="renderer.js"></script>
+</body>
+</html>

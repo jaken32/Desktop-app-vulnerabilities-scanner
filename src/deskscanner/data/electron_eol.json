@@ -1,0 +1,30 @@
+{
+  "_meta": {
+    "description": "Hand-curated, DATED snapshot of Electron major-version support. This file is the ONLY source deskscanner uses to judge Electron end-of-life. Anything outside it is reported as 'unknown — not in advisory data', never guessed.",
+    "as_of": "2026-01-15",
+    "policy": "Electron officially supports the latest three stable major versions; older majors no longer receive security backports.",
+    "sources": [
+      "https://www.electronjs.org/docs/latest/tutorial/electron-timelines",
+      "https://endoflife.date/electron"
+    ]
+  },
+  "latest_stable_major": 34,
+  "supported_majors": [32, 33, 34],
+  "majors": {
+    "34": {"eol": false, "note": "Current stable line."},
+    "33": {"eol": false, "note": "Supported."},
+    "32": {"eol": false, "note": "Supported (oldest still receiving fixes)."},
+    "31": {"eol": true, "note": "End-of-life as of the snapshot date."},
+    "30": {"eol": true, "note": "End-of-life."},
+    "29": {"eol": true, "note": "End-of-life."},
+    "28": {"eol": true, "note": "End-of-life."},
+    "27": {"eol": true, "note": "End-of-life."},
+    "26": {"eol": true, "note": "End-of-life."},
+    "25": {"eol": true, "note": "End-of-life."},
+    "24": {"eol": true, "note": "End-of-life."},
+    "22": {"eol": true, "note": "End-of-life (last line supporting Windows 7/8)."},
+    "20": {"eol": true, "note": "End-of-life."},
+    "15": {"eol": true, "note": "End-of-life."},
+    "12": {"eol": true, "note": "End-of-life."}
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "name": "secure-electron-fixture",
+  "productName": "Secure Electron Fixture",
+  "version": "2.0.0",
+  "main": "main.js",
+  "description": "Minimal SECURE fixture; should grade well.",
+  "dependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "electron": "^34.0.0"
+  }
+}
