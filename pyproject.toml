@@ -24,6 +24,12 @@ dependencies = [
 dev = [
     "pytest==8.3.3",
 ]
+# Optional AI analysis (--analyze) and polished PDF report (--pdf). Kept out of
+# the core deps so the scanner still runs with no extra packages and no secrets.
+report = [
+    "anthropic>=0.69.0",
+    "fpdf2>=2.7.9",
+]
 
 [project.scripts]
 deskscanner = "deskscanner.__main__:main"

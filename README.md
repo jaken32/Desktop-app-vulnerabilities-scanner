@@ -56,12 +56,28 @@ deskscanner scan ./my-electron-app
 # Save machine-readable + shareable reports:
 deskscanner scan ./app --json report.json --html report.html
 
+# Polished, branded PDF report:
+deskscanner scan ./app --pdf report.pdf
+
+# AI in-depth analysis + plain-English explanation (needs an API key):
+pip install -e ".[report]"                  # one-time: installs anthropic + fpdf2
+export ANTHROPIC_API_KEY=sk-ant-...
+deskscanner scan ./app --analyze --pdf report.pdf
+
 # Enable the SAFE loopback probe (read-only, 127.0.0.1 only):
 deskscanner scan ./app --probe
 
 # Diff against a previous run (ignores volatile fields):
 deskscanner scan ./app --diff report.json
 ```
+
+The `--analyze` flag uses Claude to turn the deterministic findings into a
+plain-English summary and a deeper technical analysis (key risks, recommended
+fix order). It is optional and anchored to the scan's own evidence — the model
+is instructed to explain only what the scanner found, never to invent issues.
+The narrative appears in the CLI output, the PDF, and the JSON report.
+`--pdf` and `--analyze` need the `report` extra (`pip install -e ".[report]"`);
+the core scanner still runs with no extra packages and no secrets.
 
 You'll be shown an **authorization notice** and asked to confirm before any
 scan. Use `--yes` (or `DESKSCANNER_ASSUME_YES=1`) in CI.
