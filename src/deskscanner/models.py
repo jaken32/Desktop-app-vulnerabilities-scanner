@@ -217,6 +217,10 @@ class ScanResult:
     grade: str = "N/A"
     score: float = 0.0
     confidence_note: str = ""
+    # Which platform engine produced these findings: "electron" | "flutter" |
+    # "native", plus the artifact that decided it (for transparency).
+    engine: str = "electron"
+    engine_reason: str = ""
     # Which analysis axes ran: "security" | "efficiency" | "all".
     mode: str = "security"
     # Efficiency axis — a separate grade so it never pollutes the security grade.
@@ -239,6 +243,8 @@ class ScanResult:
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
             "schema": "deskscanner/1",
+            "engine": self.engine,
+            "engine_reason": self.engine_reason,
             "mode": self.mode,
             "app": self.app.to_dict(),
             "scan_timestamp": self.scan_timestamp,

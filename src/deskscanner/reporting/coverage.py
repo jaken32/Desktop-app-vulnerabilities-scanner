@@ -36,3 +36,45 @@ DISCLAIMER = (
     "above — NOT that the application is secure. This is static analysis plus a "
     "safe loopback inspection, nothing more."
 )
+
+# --- Native / Flutter engine coverage -------------------------------------- #
+COVERS_NATIVE = [
+    "Code-signing validity & identity (codesign -dvvv): unsigned / ad-hoc / "
+    "authority chain.",
+    "Notarization & Gatekeeper (spctl, stapler) and the Hardened Runtime flag.",
+    "App Sandbox and dangerous entitlements (get-task-allow, "
+    "disable-library-validation, allow-unsigned-executable-memory, "
+    "allow-dyld-environment-variables, disable-executable-page-protection).",
+    "Info.plist hygiene: App Transport Security, custom URL schemes, empty "
+    "sensitive usage-description strings.",
+    "On-disk storage at rest (with --storage-path): unsafe permissions and "
+    "plaintext credentials/tokens.",
+    "Framework / plugin inventory (descriptive, INFO only).",
+    "Embedded-secret scan of NON-CODE artifacts (Info.plist, bundled "
+    "json/plist/yaml/txt) and printable strings of the Mach-O launcher + "
+    "App.framework binary.",
+    "Update mechanism (Sparkle): HTTPS feed + appcast signing key.",
+    "OPT-IN, loopback-only (127.0.0.1) read-only probe of the app's local HTTP "
+    "service: auth, CORS, security headers, version disclosure.",
+]
+
+DOES_NOT_COVER_NATIVE = [
+    "No decompilation or disassembly of native binaries — strings extraction "
+    "only; decompilation is never performed.",
+    "No runtime/dynamic analysis, debugging, hooking, or memory inspection.",
+    "The loopback probe is the only active behaviour, is read-only (GET/OPTIONS), "
+    "and only ever contacts 127.0.0.1.",
+    "No CVEs or version vulnerabilities asserted for bundled plugins/frameworks.",
+]
+
+# Stated plainly in the report and README.
+FLUTTER_VISIBILITY = (
+    "What Flutter scanning can and cannot see: a release Flutter macOS app "
+    "compiles its Dart logic to native machine code in Contents/Frameworks/"
+    "App.framework/App. That compiled logic is NOT readable and is NOT scanned — "
+    "there is no asar, no JavaScript, and no Electron webPreferences. This engine "
+    "reports only what is directly observable on disk (signing, entitlements, "
+    "Info.plist, bundled non-code assets, framework inventory, file permissions) "
+    "and, with --probe, the app's own loopback HTTP service. It never fabricates "
+    "Electron-style findings for a native app."
+)

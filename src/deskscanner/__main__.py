@@ -59,14 +59,16 @@ def _cmd_scan(args) -> int:
         result = scan(
             args.target,
             mode=getattr(args, "mode", "security"),
+            engine=getattr(args, "engine", None),
             probe=getattr(args, "probe", False),
+            prospect=getattr(args, "prospect", False),
             probe_timeout=getattr(args, "probe_timeout", 4.0),
             limits=UnpackLimits.from_env(),
             storage_paths=getattr(args, "storage_path", None) or [],
             progress=None if args.quiet else _progress,
         )
     except TargetNotElectronError as exc:
-        print(f"\nNot an Electron target: {exc}", file=sys.stderr)
+        print(f"\nNot a recognised desktop app bundle: {exc}", file=sys.stderr)
         return 3
     except UnpackError as exc:
         print(f"\nCould not safely read the bundle: {exc}", file=sys.stderr)
@@ -181,7 +183,13 @@ def build_parser() -> argparse.ArgumentParser:
     sc = sub.add_parser("scan", help="Scan an installed Electron app.")
     sc.add_argument("target", help="Path to the app dir, .app bundle, or app.asar.")
     sc.add_argument("--probe", action="store_true",
-                    help="Enable the safe read-only loopback API probe.")
+                    help="Enable the safe read-only loopback API probe (127.0.0.1 only).")
+    sc.add_argument("--prospect", action="store_true",
+                    help="Passively report which loopback ports are listening "
+                         "(no HTTP request sent). Native targets.")
+    sc.add_argument("--engine", choices=["electron", "flutter", "native"],
+                    default=None,
+                    help="Force the analysis engine instead of auto-detecting.")
     sc.add_argument("--probe-timeout", type=float, default=float(
         os.environ.get("DESKSCANNER_PROBE_TIMEOUT", "4.0")),
                     help="Per-request probe timeout (seconds).")

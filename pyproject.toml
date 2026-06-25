@@ -33,6 +33,7 @@ report = [
 
 [project.scripts]
 deskscanner = "deskscanner.__main__:main"
+desksec = "deskscanner.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

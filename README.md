@@ -188,6 +188,72 @@ numbers.
 The grade uses the **same** severity×confidence decay math as the security axis
 (see below); the two grades are computed independently.
 
+## Native macOS / Flutter targets
+
+deskscanner also scans **native macOS apps that ship no readable bundle** —
+including Flutter apps (e.g. Pieces), whose logic is AOT-compiled Dart inside
+`Contents/Frameworks/App.framework/App`. A **platform router** inspects the
+target and picks the engine, reporting *which* engine ran and *why*:
+
+| Artifact matched | Engine |
+|---|---|
+| `Contents/Resources/app.asar` (or an unpacked JS bundle) | **electron** (unchanged) |
+| `Contents/Frameworks/FlutterMacOS.framework` | **flutter** |
+| a valid `.app` with `Contents/Info.plist`, no asar/Flutter | **native** (generic) |
+
+All engines share the same `Finding` schema, severity rubric, confidence model,
+scoring, and report renderer. Force the choice with `--engine flutter|electron|native`.
+
+```bash
+# Auto-detected native scan (codesign/spctl/entitlements/Info.plist/inventory):
+deskscanner scan /Applications/Pieces.app
+
+# Include on-disk storage at rest:
+deskscanner scan /Applications/Pieces.app \
+  --storage-path ~/Library/com.pieces.os --storage-path ~/Library/com.pieces.pfd
+
+# List which loopback ports the app is listening on (NO request sent):
+deskscanner scan /Applications/Pieces.app --prospect
+
+# OPT-IN, read-only loopback probe of the app's local HTTP API (127.0.0.1 only):
+deskscanner scan /Applications/Pieces.app --probe
+
+# `desksec` is an alias for `deskscanner`:
+desksec scan /Applications/Pieces.app
+```
+
+The native engine checks: code-signing validity & identity, notarization &
+Gatekeeper, Hardened Runtime, App Sandbox, dangerous entitlements
+(`get-task-allow`, `disable-library-validation`,
+`allow-unsigned-executable-memory`, `allow-dyld-environment-variables`,
+`disable-executable-page-protection`), Info.plist hygiene (ATS / custom URL
+schemes / empty usage strings), storage at rest, a descriptive framework/plugin
+inventory, an embedded-secret scan of **non-code** artifacts, and the Sparkle
+update mechanism — plus the opt-in loopback probe.
+
+### What Flutter scanning can and cannot see
+
+A release Flutter macOS app compiles its Dart to **native machine code** in
+`Contents/Frameworks/App.framework/App`. **That compiled logic is not readable
+and is not scanned** — there is no asar, no JavaScript, and no Electron
+`webPreferences`. The native engine therefore:
+
+- **reports only what is directly observable** on disk (`codesign`/`spctl`
+  output, entitlements, Info.plist, bundled non-code assets, framework
+  inventory, file permissions) and, with `--probe`, the app's own loopback HTTP
+  service;
+- **never decompiles or disassembles** native binaries — `strings` extraction is
+  the only thing done to the Mach-O, and that is explicitly labelled;
+- **never fabricates Electron-style findings** for a native app; categories that
+  cannot be assessed (e.g. when `codesign`/`spctl` aren't on the host) are marked
+  *"Not assessed / Not applicable"* rather than invented.
+
+The macOS signing/notarization checks require the Xcode command-line tools
+(`codesign`, `spctl`, `stapler`); off-macOS those categories report
+*"not assessed on this host"*. The loopback probe **only ever contacts
+127.0.0.1**, issues **GET/OPTIONS only**, and requires both the authorization
+affirmation and the explicit `--probe` flag.
+
 ## How findings are scored
 
 Every finding carries **two independent axes**: a **severity** (how bad it is if
@@ -316,6 +382,14 @@ src/deskscanner/
     efficiency.py      static footprint/efficiency analyzer (second axis)
   scoring.py           severity × confidence grade (diminishing returns); efficiency grade
   diff.py              fixed / new / unchanged, ignoring volatile fields
+  native/              native/Flutter engine (macOS apps with no readable bundle)
+    detect.py          platform router -> electron | flutter | native (+ why)
+    macos.py           codesign/spctl/entitlements runner + pure parsers
+    context.py         NativeContext + path-traversal-safe reader (SafeFS)
+    checks.py          signing/notarization/runtime/sandbox/entitlements/plist/
+                       storage/inventory/secrets/update checks
+    probe.py           opt-in loopback-only (127.0.0.1) read-only probe
+    engine.py          run_native: build context -> checks -> score -> ScanResult
   reporting/
     cli.py             dense terminal report
     html.py            standalone, escaped HTML report (design system)

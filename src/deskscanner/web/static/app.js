@@ -102,11 +102,16 @@ function summaryCard(data) {
     dl.appendChild(el("dd", { text: dd }));
   };
   const a = data.app;
+  const nativeEngine = data.engine === "flutter" || data.engine === "native";
   addRow("Application", `${a.name}  v${a.version}`);
   addRow("Bundle", a.bundle_path);
-  addRow("Electron", (a.electron_version || "unknown") + (a.electron_eol ? "  [END-OF-LIFE]" : ""));
+  addRow("Engine", `${data.engine}  (${data.engine_reason || ""})`);
+  if (!nativeEngine) {
+    addRow("Electron", (a.electron_version || "unknown") + (a.electron_eol ? "  [END-OF-LIFE]" : ""));
+  }
   const signing = a.code_signed === true ? "code-signed"
-    : a.code_signed === false ? "no signature artifacts" : "unknown";
+    : a.code_signed === false ? (nativeEngine ? "NOT signed" : "no signature artifacts")
+    : (nativeEngine ? "not assessed on this host" : "unknown");
   addRow("Signing", signing);
   addRow("Scanned", data.scan_timestamp);
   metaWrap.appendChild(dl);
@@ -254,10 +259,34 @@ function renderReport(data) {
   }
 }
 
-async function runScan(ev) {
+function showProgress(phase, i, total) {
+  const main = $("#results");
+  let bar = $("#progress");
+  if (!bar) {
+    main.replaceChildren();
+    bar = el("div", { class: "loading", attrs: { id: "progress" } });
+    bar.appendChild(el("span", { class: "spinner", attrs: { "aria-hidden": "true" } }));
+    bar.appendChild(el("span", { attrs: { id: "progress-text" } }));
+    main.appendChild(bar);
+  }
+  const pct = total ? Math.round((i / total) * 100) : 0;
+  $("#progress-text").textContent = `Running ${phase}… (${pct}%)`;
+}
+
+function doneStatus(data) {
+  const bits = [];
+  if (data.mode === "security" || data.mode === "all")
+    bits.push(`${data.engine} ${data.grade} (${data.findings.length} findings)`);
+  if (data.efficiency)
+    bits.push(`efficiency ${data.efficiency.grade} (${data.efficiency.findings.length})`);
+  setStatus("Done — " + bits.join(" · ") + ".");
+}
+
+function runScan(ev) {
   ev.preventDefault();
   const target = $("#target").value.trim();
   const probe = $("#probe").checked;
+  const prospect = $("#prospect") ? $("#prospect").checked : false;
   const consent = $("#consent").checked;
   const modeEl = document.querySelector('input[name="mode"]:checked');
   const mode = modeEl ? modeEl.value : "security";
@@ -271,33 +300,46 @@ async function runScan(ev) {
   $("#download-btn").hidden = true;
   showLoading();
 
+  // Live progress via Server-Sent Events.
+  const qs = new URLSearchParams({
+    target, mode, probe: probe ? "1" : "", prospect: prospect ? "1" : "",
+    consent: "1",
+  });
+  let settled = false;
+  let es;
   try {
-    const resp = await fetch("/api/scan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ target, mode, probe, consent }),
-    });
-    const data = await resp.json();
-    if (!resp.ok) {
-      showError(data.error || `Scan failed (HTTP ${resp.status}).`);
-      setStatus("Failed.", true);
-      return;
-    }
+    es = new EventSource("/api/scan/stream?" + qs.toString());
+  } catch (err) {
+    showError("Could not start the scan stream.");
+    setStatus("Failed.", true);
+    btn.disabled = false;
+    return;
+  }
+  es.addEventListener("progress", (e) => {
+    const d = JSON.parse(e.data);
+    showProgress(d.phase, d.i, d.total);
+  });
+  es.addEventListener("result", (e) => {
+    settled = true;
+    const data = JSON.parse(e.data);
     lastHtmlReport = data.html || null;
     renderReport(data);
-    const bits = [];
-    if (data.mode === "security" || data.mode === "all")
-      bits.push(`security ${data.grade} (${data.findings.length})`);
-    if (data.efficiency)
-      bits.push(`efficiency ${data.efficiency.grade} (${data.efficiency.findings.length})`);
-    setStatus("Done — " + bits.join(" · ") + ".");
+    doneStatus(data);
     $("#download-btn").hidden = !lastHtmlReport;
-  } catch (err) {
-    showError("Could not reach the scanner backend. Is the server still running?");
-    setStatus("Network error.", true);
-  } finally {
+    es.close();
     btn.disabled = false;
-  }
+  });
+  es.addEventListener("error", (e) => {
+    if (settled) return;
+    let msg = "Scan failed.";
+    try { msg = JSON.parse(e.data).error || msg; } catch (_) {
+      msg = "Lost connection to the scanner backend.";
+    }
+    showError(msg);
+    setStatus("Failed.", true);
+    es.close();
+    btn.disabled = false;
+  });
 }
 
 function downloadReport() {
