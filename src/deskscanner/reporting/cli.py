@@ -53,8 +53,10 @@ def render_cli(result: ScanResult, *, diff: Optional[DiffResult] = None,
     s = _Style(_color_enabled(stream))
     w = lambda line="": print(line, file=stream)
 
+    kind = {"flutter": "Flutter", "native": "native macOS"}.get(
+        result.engine, "Electron")
     w()
-    w(s("deskscanner — Electron application analysis report", _BOLD))
+    w(s(f"deskscanner — {kind} application analysis report", _BOLD))
     w(s(_mode_subtitle(result), _DIM))
     w("─" * 70)
 
@@ -72,6 +74,9 @@ def render_cli(result: ScanResult, *, diff: Optional[DiffResult] = None,
 
 
 def _mode_subtitle(result: ScanResult) -> str:
+    if result.engine in ("flutter", "native"):
+        return "static native analysis (signing, entitlements, plist, storage) " \
+               "+ opt-in loopback probe"
     return {
         "security": "static analysis + safe loopback inspection",
         "efficiency": "static efficiency / footprint analysis (no runtime profiling)",

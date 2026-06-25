@@ -413,9 +413,12 @@ def render_html(result: ScanResult, *, diff: Optional[DiffResult] = None) -> str
 
     tmpl = _ENV.from_string(_TEMPLATE)
     tmpl.globals["render_finding"] = render_finding
+    _subtitle = ("static native analysis (signing · entitlements · Info.plist · "
+                 "storage) + opt-in loopback probe" if native
+                 else _SUBTITLE.get(result.mode, "static analysis"))
     return tmpl.render(
         css=_CSS,
-        subtitle=_SUBTITLE.get(result.mode, "static analysis"),
+        subtitle=_subtitle,
         app=result.app,
         engine=result.engine,
         engine_reason=result.engine_reason,
