@@ -18,6 +18,8 @@ from .checks.base import CheckContext
 from .checks.efficiency import analyze as analyze_efficiency
 from .locate import Located, TargetNotElectronError, locate
 from .models import AppInfo, ScanResult
+from .native.detect import detect_engine
+from .native.engine import run_native
 from .scoring import apply_efficiency_score, apply_score, sort_findings
 from .unpack import UnpackLimits
 
@@ -58,7 +60,9 @@ def scan(
     target: str,
     *,
     mode: str = "security",
+    engine: Optional[str] = None,
     probe: bool = False,
+    prospect: bool = False,
     probe_timeout: float = 4.0,
     limits: Optional[UnpackLimits] = None,
     storage_paths: Optional[list[str]] = None,
@@ -67,16 +71,30 @@ def scan(
 ) -> ScanResult:
     """Run a scan and return a :class:`ScanResult`.
 
-    ``mode`` selects the analysis axes:
-      * ``"security"`` (default) — the original security checks only.
-      * ``"efficiency"`` — the static footprint/efficiency analyzer only.
-      * ``"all"`` — both, each graded on its own separate axis.
+    A platform router inspects the target and picks an engine:
+      * an Electron ``app.asar`` -> the existing Electron engine (``mode`` applies).
+      * ``Contents/Frameworks/FlutterMacOS.framework`` -> the Flutter engine.
+      * otherwise a valid ``.app`` -> the generic native engine.
+    ``engine`` ("electron"|"flutter"|"native") forces the choice.
 
-    Raises :class:`~deskscanner.locate.TargetNotElectronError` for non-Electron
-    targets so the caller can present a clear message.
+    ``mode`` (Electron only) selects the analysis axes: ``"security"`` (default),
+    ``"efficiency"``, or ``"all"``. Native targets are security-only.
+
+    Raises :class:`~deskscanner.locate.TargetNotElectronError` when the target is
+    not a recognised desktop app bundle.
     """
     if mode not in MODES:
         raise ValueError(f"unknown mode {mode!r}; expected one of {MODES}")
+
+    detection = detect_engine(target, override=engine)
+    if detection.engine == "unknown":
+        raise TargetNotElectronError(detection.reason)
+    if detection.engine in ("flutter", "native"):
+        return run_native(
+            detection, probe=probe, prospect=prospect,
+            storage_paths=storage_paths, timestamp=timestamp, progress=progress)
+
+    # --- Electron engine (unchanged) ------------------------------------- #
     limits = limits or UnpackLimits.from_env()
     located = locate(target, limits)
     app = _app_info_from_bundle(located.bundle, located)

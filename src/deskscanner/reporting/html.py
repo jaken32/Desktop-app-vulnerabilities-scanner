@@ -179,11 +179,14 @@ _TEMPLATE = """<!doctype html>
       <dl>
         <dt>Application</dt><dd>{{ app.name }} <span class="conf">v{{ app.version }}</span></dd>
         <dt>Bundle</dt><dd class="loc">{{ app.bundle_path }}</dd>
+        <dt>Engine</dt><dd>{{ engine }} <span class="conf">{{ engine_reason }}</span></dd>
+        {% if not native %}
         <dt>Electron</dt>
         <dd>{{ app.electron_version or "unknown" }}
           {% if app.electron_eol %}<span class="badge eol">▲ end-of-life</span>{% endif %}
         </dd>
         {% if app.electron_eol_note %}<dt></dt><dd class="conf">{{ app.electron_eol_note }}</dd>{% endif %}
+        {% endif %}
         <dt>Signing</dt><dd>{{ signing }}</dd>
         <dt>Scanned</dt><dd>{{ timestamp }}</dd>
       </dl>
@@ -236,6 +239,7 @@ _TEMPLATE = """<!doctype html>
     <ul class="cov">{% for c in covers %}<li>{{ c }}</li>{% endfor %}</ul>
     <h3 style="font-size:var(--fs-1)">Does NOT cover</h3>
     <ul class="cov">{% for c in not_covers %}<li>{{ c }}</li>{% endfor %}</ul>
+    {% if flutter_visibility %}<p class="disclaimer">{{ flutter_visibility }}</p>{% endif %}
     <p class="disclaimer">{{ disclaimer }}</p>
   </section>
   {% endif %}
@@ -398,9 +402,14 @@ def render_html(result: ScanResult, *, diff: Optional[DiffResult] = None) -> str
     eff_info = [_finding_view(f) for f in result.efficiency_findings
                 if f.severity is Severity.INFO]
 
-    signing = {True: "code-signed (artifacts present)",
-               False: "no signature artifacts found",
-               None: "unknown (not determinable from bundle)"}[result.app.code_signed]
+    native = result.engine in ("flutter", "native")
+    if native:
+        signing = {True: "code-signed", False: "NOT signed",
+                   None: "not assessed on this host"}[result.app.code_signed]
+    else:
+        signing = {True: "code-signed (artifacts present)",
+                   False: "no signature artifacts found",
+                   None: "unknown (not determinable from bundle)"}[result.app.code_signed]
 
     tmpl = _ENV.from_string(_TEMPLATE)
     tmpl.globals["render_finding"] = render_finding
@@ -408,6 +417,9 @@ def render_html(result: ScanResult, *, diff: Optional[DiffResult] = None) -> str
         css=_CSS,
         subtitle=_SUBTITLE.get(result.mode, "static analysis"),
         app=result.app,
+        engine=result.engine,
+        engine_reason=result.engine_reason,
+        native=native,
         ran_security=result.ran_security,
         ran_efficiency=result.ran_efficiency,
         grade=result.grade,
@@ -421,8 +433,9 @@ def render_html(result: ScanResult, *, diff: Optional[DiffResult] = None) -> str
         scored=scored,
         info=info,
         diff=diff.to_dict() if diff else None,
-        covers=coverage.COVERS,
-        not_covers=coverage.DOES_NOT_COVER,
+        covers=coverage.COVERS_NATIVE if native else coverage.COVERS,
+        not_covers=coverage.DOES_NOT_COVER_NATIVE if native else coverage.DOES_NOT_COVER,
+        flutter_visibility=coverage.FLUTTER_VISIBILITY if native else None,
         disclaimer=coverage.DISCLAIMER,
         # efficiency axis
         eff_grade=result.efficiency_grade,

@@ -83,20 +83,28 @@ def _render_security(w, s, result: ScanResult,
                      diff: Optional[DiffResult] = None) -> None:
     app = result.app
 
+    native = result.engine in ("flutter", "native")
+
     # Header / grade card -------------------------------------------------
     grade_str = s(f" {result.grade} ", _GRADE_COLOR.get(result.grade, "") + _BOLD)
     w(f"  App:        {s(app.name, _BOLD)}  v{app.version}")
     w(f"  Bundle:     {app.bundle_path}")
-    elec = app.electron_version or "unknown"
-    eol = ""
-    if app.electron_eol:
-        eol = s("  [END-OF-LIFE]", _SEV_COLOR['high'] + _BOLD)
-    w(f"  Electron:   {elec}{eol}")
-    if app.electron_eol_note:
-        w(s(f"              {app.electron_eol_note}", _DIM))
-    sign = {True: "signed", False: "no signature artifacts found",
-            None: "unknown (not determinable)"}[app.code_signed]
-    w(f"  Signing:    {sign}")
+    w(f"  Engine:     {s(result.engine, _BOLD)}  ({result.engine_reason})")
+    if native:
+        sign = {True: "code-signed", False: "NOT signed",
+                None: "not assessed on this host"}[app.code_signed]
+        w(f"  Signing:    {sign}")
+    else:
+        elec = app.electron_version or "unknown"
+        eol = ""
+        if app.electron_eol:
+            eol = s("  [END-OF-LIFE]", _SEV_COLOR['high'] + _BOLD)
+        w(f"  Electron:   {elec}{eol}")
+        if app.electron_eol_note:
+            w(s(f"              {app.electron_eol_note}", _DIM))
+        sign = {True: "signed", False: "no signature artifacts found",
+                None: "unknown (not determinable)"}[app.code_signed]
+        w(f"  Signing:    {sign}")
     w(f"  Scanned:    {result.scan_timestamp}")
     w("")
     w(f"  Grade:      {grade_str}   score {result.score}/100")
@@ -135,16 +143,21 @@ def _render_security(w, s, result: ScanResult,
         _render_diff(w, s, diff)
 
     # Coverage ------------------------------------------------------------
+    covers = coverage.COVERS_NATIVE if native else coverage.COVERS
+    not_covers = coverage.DOES_NOT_COVER_NATIVE if native else coverage.DOES_NOT_COVER
     w("")
     w("─" * 70)
     w(s("  What this DOES cover", _BOLD))
-    for item in coverage.COVERS:
+    for item in covers:
         w(f"    + {item}")
     w("")
     w(s("  What this does NOT cover", _BOLD))
-    for item in coverage.DOES_NOT_COVER:
+    for item in not_covers:
         w(f"    - {item}")
     w("")
+    if native:
+        w(s("  " + coverage.FLUTTER_VISIBILITY, _DIM))
+        w("")
     w(s("  " + coverage.DISCLAIMER, _DIM))
 
 
